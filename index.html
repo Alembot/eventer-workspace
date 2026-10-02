@@ -69,6 +69,9 @@ button{font:inherit;cursor:pointer}
 .pill.good{color:var(--good);border-color:var(--good)}
 .pill.bad{color:var(--bad);border-color:var(--bad)}
 .pill.warn{color:var(--warn);border-color:var(--warn)}
+.home-grid{display:grid;grid-template-columns:7fr 3fr;gap:16px;align-items:start}
+.home-col-main{display:flex;flex-direction:column;gap:16px;min-width:0}
+.home-col-side{display:flex;flex-direction:column;gap:16px;min-width:0}
 .yeartabs{display:flex;gap:6px;margin-bottom:14px}
 .yeartabs button{padding:6px 14px;border-radius:7px;border:1px solid var(--border);background:var(--surface);color:var(--fg)}
 .yeartabs button.active{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}
@@ -222,6 +225,7 @@ textarea{resize:vertical;min-height:54px}
   .yeartabs button{padding:5px 10px;font-size:12px}
   .task-toolbar{gap:6px}
   .task-toolbar select{padding:6px 8px;font-size:12.5px;max-width:100%}
+  .home-grid{grid-template-columns:1fr;gap:12px}
 }
 </style>
 
@@ -405,36 +409,42 @@ function renderHome(panel){
   if(!db){ panel.innerHTML = '<div class="empty">База данных недоступна в этом окне.</div>'; return; }
   let dayMode = 'today'; // 'today' | 'tomorrow' | 'week'
   panel.innerHTML = `
-    <div class="card">
-      <div class="yeartabs" id="homeIndicators"></div>
-    </div>
-    <div class="card">
-      <div class="task-toolbar" style="justify-content:space-between">
-        <div class="yeartabs" id="homeDayTabs">
-          <button data-d="today" class="active">Сегодня</button>
-          <button data-d="tomorrow">Завтра</button>
-          <button data-d="week">На неделе</button>
+    <div class="home-grid">
+      <div class="home-col-main">
+        <div class="card">
+          <div class="yeartabs" id="homeIndicators"></div>
         </div>
-        <button class="btn ghost" id="homeAllTasks">Все задачи</button>
+        <div class="card">
+          <div class="task-toolbar" style="justify-content:space-between">
+            <div class="yeartabs" id="homeDayTabs">
+              <button data-d="today" class="active">Сегодня</button>
+              <button data-d="tomorrow">Завтра</button>
+              <button data-d="week">На неделе</button>
+            </div>
+            <button class="btn ghost" id="homeAllTasks">Все задачи</button>
+          </div>
+          <div class="list" id="homeTaskList"><div class="empty">Загрузка…</div></div>
+        </div>
       </div>
-      <div class="list" id="homeTaskList"><div class="empty">Загрузка…</div></div>
-    </div>
-    <div class="card">
-      <div class="modal-label" style="margin-bottom:8px">Ближайшие события</div>
-      <div class="row">
-        <input type="text" id="newEventTitle" placeholder="Событие…"/>
-        <input type="date" id="newEventDate" style="flex:none;width:150px"/>
-        <button class="btn" id="addEvent">Добавить</button>
+      <div class="home-col-side">
+        <div class="card">
+          <div class="modal-label" style="margin-bottom:8px">Ближайшие события</div>
+          <div class="row">
+            <input type="text" id="newEventTitle" placeholder="Событие…"/>
+            <input type="date" id="newEventDate" style="flex:none;width:150px"/>
+            <button class="btn" id="addEvent">Добавить</button>
+          </div>
+          <div class="list" id="eventList"><div class="empty">Загрузка…</div></div>
+        </div>
+        <div class="card">
+          <div class="modal-label" style="margin-bottom:8px">Заметки</div>
+          <div class="row">
+            <input type="text" id="newNoteText" placeholder="Заметка…"/>
+            <button class="btn" id="addNote">Добавить</button>
+          </div>
+          <div class="list" id="noteList"><div class="empty">Загрузка…</div></div>
+        </div>
       </div>
-      <div class="list" id="eventList"><div class="empty">Загрузка…</div></div>
-    </div>
-    <div class="card">
-      <div class="modal-label" style="margin-bottom:8px">Заметки</div>
-      <div class="row">
-        <input type="text" id="newNoteText" placeholder="Заметка…"/>
-        <button class="btn" id="addNote">Добавить</button>
-      </div>
-      <div class="list" id="noteList"><div class="empty">Загрузка…</div></div>
     </div>`;
 
   const col = db.collection('tasks');
