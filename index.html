@@ -206,7 +206,8 @@ textarea{resize:vertical;min-height:54px}
 @media (max-width:760px){
   .app{flex-direction:column}
   .rail{width:100%;position:static;flex-direction:row;overflow-x:auto;padding:10px 0;min-height:0;height:auto;align-items:center}
-  .rail-brand{display:none}
+  .rail-brand{display:flex;align-items:center;flex:none;padding:0 12px;border-bottom:none;border-right:1px solid #2a251d;margin-bottom:0;margin-right:4px;align-self:stretch}
+  .rail-brand .name{font-size:13px;white-space:nowrap}
   .rail-list{display:flex}
   .rail-item{white-space:nowrap;border-left:none;border-bottom:3px solid transparent}
   .rail-item.active{border-left:none;border-bottom-color:var(--accent)}
@@ -239,7 +240,6 @@ textarea{resize:vertical;min-height:54px}
   <nav class="rail">
     <div class="rail-brand" id="railBrand" style="cursor:pointer" title="Главная">
       <div class="name">Eventer Workspace</div>
-      <div class="tag">Бизнес-операционка Кайрата</div>
     </div>
     <ul class="rail-list" id="railList"></ul>
   </nav>
