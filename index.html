@@ -403,17 +403,19 @@ function dayBounds(offsetDays){
 }
 function renderHome(panel){
   if(!db){ panel.innerHTML = '<div class="empty">База данных недоступна в этом окне.</div>'; return; }
-  let dayMode = 'today'; // 'today' | 'tomorrow'
+  let dayMode = 'today'; // 'today' | 'tomorrow' | 'week'
   panel.innerHTML = `
     <div class="card">
       <div class="yeartabs" id="homeIndicators"></div>
     </div>
     <div class="card">
-      <div class="task-toolbar">
+      <div class="task-toolbar" style="justify-content:space-between">
         <div class="yeartabs" id="homeDayTabs">
           <button data-d="today" class="active">Сегодня</button>
           <button data-d="tomorrow">Завтра</button>
+          <button data-d="week">На неделе</button>
         </div>
+        <button class="btn ghost" id="homeAllTasks">Все задачи</button>
       </div>
       <div class="list" id="homeTaskList"><div class="empty">Загрузка…</div></div>
     </div>
@@ -457,19 +459,38 @@ function renderHome(panel){
       <button disabled>Отложенные ${counts.postponed}</button>`;
   }
   function renderDayList(){
-    const start = dayBounds(dayMode==='today'?0:1);
-    const end = dayBounds(dayMode==='today'?1:2);
-    const docs = allDocs.filter(d=> !d.data.parentId && d.data.due && d.data.due>=start && d.data.due<end);
-    if(!docs.length){ taskListEl.innerHTML = `<div class="empty">Нет задач на ${dayMode==='today'?'сегодня':'завтра'}.</div>`; return; }
+    const todayEnd = dayBounds(1);
+    let docs;
+    let emptyMsg;
+    if(dayMode==='today'){
+      // "Сегодня" = actionable now: anything overdue plus anything due today —
+      // matches how the old Workspace's "Главный менеджер" surfaced the day's work.
+      docs = allDocs.filter(d=> !d.data.parentId && d.data.status!=='done' && d.data.status!=='postponed' && d.data.due && d.data.due<todayEnd);
+      emptyMsg = 'Нет задач на сегодня — всё закрыто.';
+    } else if(dayMode==='tomorrow'){
+      const start = dayBounds(1), end = dayBounds(2);
+      docs = allDocs.filter(d=> !d.data.parentId && d.data.due && d.data.due>=start && d.data.due<end);
+      emptyMsg = 'Нет задач на завтра.';
+    } else if(dayMode==='week'){
+      const end = dayBounds(7);
+      docs = allDocs.filter(d=> !d.data.parentId && d.data.status!=='done' && d.data.status!=='postponed' && d.data.due && d.data.due<end);
+      emptyMsg = 'На ближайшую неделю задач нет.';
+    } else {
+      docs = allDocs.filter(d=> !d.data.parentId && d.data.status!=='done' && d.data.status!=='postponed');
+      emptyMsg = 'Активных задач нет.';
+    }
+    docs = docs.slice().sort((a,b)=>(a.data.due||Infinity)-(b.data.due||Infinity));
+    if(!docs.length){ taskListEl.innerHTML = `<div class="empty">${emptyMsg}</div>`; return; }
     taskListEl.innerHTML = docs.map(({id,data:v})=>{
       const dirObj = DIRECTIONS.find(d=>d.slug===v.direction);
       const overdue = isOverdue(v);
       return `<div class="task ${overdue?'overdue':''}" data-id="${id}" data-dir="${v.direction}">
-        <div class="task-row">
+        <div class="task-row" style="flex-wrap:wrap;row-gap:4px">
           <input type="checkbox" class="chk" ${v.status==='done'?'checked':''}/>
-          <span class="task-id" style="flex:none">${dirObj?dirObj.name:v.direction}</span>
-          <div class="task-title ${v.status==='done'?'done':''}">${(v.text||'').replace(/</g,'&lt;')}</div>
-          <button class="task-due" data-due="${v.due||''}" disabled>${v.due?fmtDue(v.due):''}</button>
+          ${v.no?`<span class="task-id" style="flex:none">ID ${v.no}</span>`:''}
+          <div class="task-title ${v.status==='done'?'done':''}" style="flex-basis:100%">${(v.text||'').replace(/</g,'&lt;')}</div>
+          <span class="pill" style="flex:none">${dirObj?dirObj.name:v.direction}</span>
+          <span class="pill ${overdue?'bad':''}" style="flex:none;margin-left:auto">${overdue?'Просрочена · ':''}${v.due?fmtDue(v.due):'без срока'}</span>
         </div>
       </div>`;
     }).join('');
@@ -497,6 +518,11 @@ function renderHome(panel){
     const btn = e.target.closest('button[data-d]'); if(!btn) return;
     dayMode = btn.dataset.d;
     dayTabsEl.querySelectorAll('button[data-d]').forEach(b=>b.classList.toggle('active', b===btn));
+    renderDayList();
+  });
+  panel.querySelector('#homeAllTasks').addEventListener('click', ()=>{
+    dayMode = 'all';
+    dayTabsEl.querySelectorAll('button[data-d]').forEach(b=>b.classList.remove('active'));
     renderDayList();
   });
 
