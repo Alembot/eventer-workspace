@@ -1615,12 +1615,40 @@ function seedIfEmpty(){
   }catch(e){ console.error('seed failed', e); }
 }
 
+function applyAppFixes(){
+  // Runs on every boot (unlike seedIfEmpty, which only fires once on an
+  // empty collection) so that already-populated devices still pick up
+  // corrected/added app entries without wiping any other user edits.
+  try{
+    const key = lsKey('apps');
+    let apps = JSON.parse(localStorage.getItem(key) || '[]');
+    const fixes = [
+      {id:'institute_atlas', direction:'institute', name:'EVENTER Atlas', url:'https://claude.ai/artifact/NR6yhervFk1psn8Hwwf8Tx'},
+      {id:'afisha_atlas', direction:'afisha', name:'EVENTER Atlas', url:'https://claude.ai/artifact/NR6yhervFk1psn8Hwwf8Tx'},
+      {id:'afisha_db', direction:'afisha', name:'Afisha Data Base', url:'https://claude.ai/artifact/3K2JSM8fxDYmQKHQDewCBk'}
+    ];
+    let changed = false;
+    fixes.forEach(fix=>{
+      const idx = apps.findIndex(a=>a.id===fix.id);
+      if(idx === -1){
+        apps.push({id:fix.id, direction:fix.direction, name:fix.name, url:fix.url, ts:0});
+        changed = true;
+      } else if(apps[idx].url !== fix.url || apps[idx].name !== fix.name){
+        apps[idx] = Object.assign({}, apps[idx], {url:fix.url, name:fix.name});
+        changed = true;
+      }
+    });
+    if(changed) localStorage.setItem(key, JSON.stringify(apps));
+  }catch(e){ console.error('app fix failed', e); }
+}
+
 async function boot(){
   // Standalone build: data lives in this browser's localStorage (per device,
   // no account/login, no cross-device sync). Finance tab's "live from Google
   // Sheets" refresh is a Claude-only feature and is not available here.
   db = dbShim;
   seedIfEmpty();
+  applyAppFixes();
   parseRoute();
   render();
 }
