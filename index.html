@@ -72,6 +72,12 @@ button{font:inherit;cursor:pointer}
 .home-grid{display:grid;grid-template-columns:7fr 3fr;gap:16px;align-items:start}
 .home-col-main{display:flex;flex-direction:column;gap:16px;min-width:0}
 .home-col-side{display:flex;flex-direction:column;gap:16px;min-width:0}
+.side-card-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.side-card-head .modal-label{margin-bottom:0}
+.side-add-btn{flex:none;width:26px;height:26px;border-radius:7px;border:1px solid var(--border);background:var(--surface-2);color:var(--fg);font-size:16px;line-height:1;cursor:pointer}
+.side-add-btn:hover{border-color:var(--accent);color:var(--accent)}
+.side-add-form{display:flex;flex-direction:column;gap:7px;margin-bottom:12px}
+.side-add-form input{width:100%}
 .yeartabs{display:flex;gap:6px;margin-bottom:14px}
 .yeartabs button{padding:6px 14px;border-radius:7px;border:1px solid var(--border);background:var(--surface);color:var(--fg)}
 .yeartabs button.active{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}
@@ -428,18 +434,24 @@ function renderHome(panel){
       </div>
       <div class="home-col-side">
         <div class="card">
-          <div class="modal-label" style="margin-bottom:8px">Ближайшие события</div>
-          <div class="row">
-            <input type="text" id="newEventTitle" placeholder="Событие…"/>
-            <input type="date" id="newEventDate" style="flex:none;width:150px"/>
+          <div class="side-card-head">
+            <div class="modal-label">Ближайшие события</div>
+            <button class="side-add-btn" id="toggleAddEvent" title="Добавить событие">+</button>
+          </div>
+          <div class="side-add-form" id="addEventForm" style="display:none">
+            <input type="text" id="newEventTitle" placeholder="Название события…"/>
+            <input type="date" id="newEventDate"/>
             <button class="btn" id="addEvent">Добавить</button>
           </div>
           <div class="list" id="eventList"><div class="empty">Загрузка…</div></div>
         </div>
         <div class="card">
-          <div class="modal-label" style="margin-bottom:8px">Заметки</div>
-          <div class="row">
-            <input type="text" id="newNoteText" placeholder="Заметка…"/>
+          <div class="side-card-head">
+            <div class="modal-label">Заметки</div>
+            <button class="side-add-btn" id="toggleAddNote" title="Добавить заметку">+</button>
+          </div>
+          <div class="side-add-form" id="addNoteForm" style="display:none">
+            <input type="text" id="newNoteText" placeholder="Текст заметки…"/>
             <button class="btn" id="addNote">Добавить</button>
           </div>
           <div class="list" id="noteList"><div class="empty">Загрузка…</div></div>
@@ -556,10 +568,16 @@ function renderHome(panel){
   const evTitle = panel.querySelector('#newEventTitle');
   const evDate = panel.querySelector('#newEventDate');
   const evBtn = panel.querySelector('#addEvent');
+  const evForm = panel.querySelector('#addEventForm');
+  panel.querySelector('#toggleAddEvent').addEventListener('click', ()=>{
+    const show = evForm.style.display==='none';
+    evForm.style.display = show?'flex':'none';
+    if(show) evTitle.focus();
+  });
   async function addEvent(){
     const title = evTitle.value.trim(); if(!title) return;
     const when = evDate.value ? new Date(evDate.value+'T00:00:00').getTime() : null;
-    try{ await eventsCol.add({ title, when, ts: Date.now() }); evTitle.value=''; evDate.value=''; }
+    try{ await eventsCol.add({ title, when, ts: Date.now() }); evTitle.value=''; evDate.value=''; evForm.style.display='none'; }
     catch(e){ alert('Не удалось сохранить: '+(e&&e.code||e)); }
   }
   evBtn.addEventListener('click', addEvent);
@@ -584,9 +602,15 @@ function renderHome(panel){
   unsubs['home-notes']=unsubNotes;
   const noteInput = panel.querySelector('#newNoteText');
   const noteBtn = panel.querySelector('#addNote');
+  const noteForm = panel.querySelector('#addNoteForm');
+  panel.querySelector('#toggleAddNote').addEventListener('click', ()=>{
+    const show = noteForm.style.display==='none';
+    noteForm.style.display = show?'flex':'none';
+    if(show) noteInput.focus();
+  });
   async function addNote(){
     const text = noteInput.value.trim(); if(!text) return;
-    try{ await notesCol.add({ text, ts: Date.now() }); noteInput.value=''; }
+    try{ await notesCol.add({ text, ts: Date.now() }); noteInput.value=''; noteForm.style.display='none'; }
     catch(e){ alert('Не удалось сохранить: '+(e&&e.code||e)); }
   }
   noteBtn.addEventListener('click', addNote);
