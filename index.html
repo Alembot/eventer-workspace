@@ -366,8 +366,19 @@ const unsubs = {};
 function clearUnsubs(){ Object.keys(unsubs).forEach(k=>{ try{unsubs[k]()}catch(e){}; delete unsubs[k]; }); }
 
 function parseRoute(){
+  const empDir = employeeDirection();
+  if(empDir){
+    // Employees are locked to their own direction — any other hash (home,
+    // another direction, team) is redirected straight back to it.
+    const h = (location.hash||'').replace('#','');
+    const [dir, tab] = h.split('/');
+    state.dir = empDir;
+    state.tab = (dir===empDir && tab) ? tab : 'tasks';
+    return;
+  }
   const h = (location.hash||'').replace('#','');
   if(h==='home'){ state.dir = 'home'; state.tab = null; return; }
+  if(h==='team'){ state.dir = 'team'; state.tab = null; return; }
   const [dir, tab] = h.split('/');
   state.dir = DIRECTIONS.find(d=>d.slug===dir) ? dir : 'academy';
   state.tab = tab || 'tasks';
@@ -401,15 +412,43 @@ function lastVal(row){
 
 function renderRail(){
   const ul = document.getElementById('railList');
-  ul.innerHTML = DIRECTIONS.map(d => `
+  const empDir = employeeDirection();
+  const dirsToShow = empDir ? DIRECTIONS.filter(d=>d.slug===empDir) : DIRECTIONS;
+  let html = dirsToShow.map(d => `
     <li class="rail-item ${d.slug===state.dir?'active':''}" data-dir="${d.slug}">
       <span class="n">${d.n}</span><span>${d.name}</span>
     </li>`).join('');
+  if(isAdmin()){
+    html += `<li class="rail-item ${state.dir==='team'?'active':''}" data-dir="team" style="margin-top:10px;border-top:1px solid var(--border);padding-top:14px">
+      <span class="n">👥</span><span>Сотрудники</span>
+    </li>`;
+  }
+  ul.innerHTML = html;
   ul.querySelectorAll('.rail-item').forEach(el=>{
-    el.addEventListener('click', ()=>{ location.hash = '#'+el.dataset.dir+'/tasks'; });
+    el.addEventListener('click', ()=>{
+      location.hash = el.dataset.dir==='team' ? '#team' : '#'+el.dataset.dir+'/tasks';
+    });
   });
   const brand = document.getElementById('railBrand');
   if(brand) brand.classList.toggle('active', state.dir==='home');
+  renderRailFooter();
+}
+function renderRailFooter(){
+  let footer = document.getElementById('railFooter');
+  const rail = document.querySelector('.rail');
+  if(!footer){
+    footer = document.createElement('div');
+    footer.id = 'railFooter';
+    footer.style.cssText = 'margin-top:auto;padding:14px 16px;border-top:1px solid var(--border);font-size:12px;color:var(--fg-muted)';
+    rail.appendChild(footer);
+  }
+  if(!currentProfile){ footer.innerHTML = ''; return; }
+  footer.innerHTML = `
+    <div style="margin-bottom:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${(currentProfile.email||'').replace(/</g,'&lt;')}</div>
+    <div style="margin-bottom:8px">${isAdmin() ? 'Администратор' : 'Сотрудник · ' + (DIRECTIONS.find(d=>d.slug===currentProfile.direction)||{}).name||''}</div>
+    <button class="btn ghost" id="railLogout" style="width:100%;padding:6px;font-size:12px">Выйти</button>`;
+  const lo = document.getElementById('railLogout');
+  if(lo) lo.addEventListener('click', ()=>{ if(sb) sb.auth.signOut(); });
 }
 
 const DIRS_WITH_FINANCE_AND_MESSAGES = ['academy','afisha'];
@@ -705,6 +744,58 @@ function renderHome(panel){
   noteInput.addEventListener('keydown', e=>{ if(e.key==='Enter') addNote(); });
 }
 
+// ---------- Team management (admin only): assign each signed-up account a
+// role and, for employees, the single direction they're scoped to. ----------
+async function renderTeam(panel){
+  panel.innerHTML = `<div class="card"><div class="empty">Загрузка…</div></div>`;
+  if(!sb){ panel.innerHTML = `<div class="card"><div class="empty">База данных недоступна в этом окне.</div></div>`; return; }
+  const { data, error } = await sb.from('profiles').select('*').order('created_at', {ascending:true});
+  if(error){ panel.innerHTML = `<div class="card"><div class="empty">Нет доступа (${error.code||error.message}).</div></div>`; return; }
+  const dirOptions = DIRECTIONS.map(d=>`<option value="${d.slug}">${d.name}</option>`).join('');
+  panel.innerHTML = `
+    <div class="card">
+      <div style="margin-bottom:10px;color:var(--fg-muted);font-size:12.5px">Новый сотрудник сначала сам регистрируется на экране входа (почта + пароль) — после этого он появится здесь без направления. Назначьте ему роль и направление, чтобы открыть доступ.</div>
+      <div class="list" id="teamList"></div>
+    </div>`;
+  const listEl = panel.querySelector('#teamList');
+  listEl.innerHTML = data.map(p=>`
+    <div class="item" data-id="${p.id}" style="flex-wrap:wrap;gap:8px;align-items:center">
+      <div style="flex:1;min-width:180px">
+        <div class="txt">${(p.email||p.id).replace(/</g,'&lt;')}</div>
+        ${p.id==='04af842f-4270-4510-9fcc-2b2609f83a6b' ? '<div style="font-size:11px;color:var(--fg-muted)">Главный администратор</div>' : ''}
+      </div>
+      <select class="tRole" style="flex:none" ${p.id==='04af842f-4270-4510-9fcc-2b2609f83a6b'?'disabled':''}>
+        <option value="employee" ${p.role==='employee'?'selected':''}>Сотрудник</option>
+        <option value="admin" ${p.role==='admin'?'selected':''}>Администратор</option>
+      </select>
+      <select class="tDir" style="flex:none" ${p.role==='admin'?'disabled':''}>
+        <option value="">— направление не выбрано —</option>
+        ${dirOptions}
+      </select>
+      <button class="btn" style="flex:none" data-save="${p.id}">Сохранить</button>
+    </div>`).join('');
+  listEl.querySelectorAll('.tDir').forEach((sel,i)=>{ sel.value = data[i].direction || ''; });
+  listEl.querySelectorAll('.tRole').forEach(sel=>{
+    sel.addEventListener('change', ()=>{
+      const dirSel = sel.closest('.item').querySelector('.tDir');
+      dirSel.disabled = sel.value==='admin';
+    });
+  });
+  listEl.querySelectorAll('[data-save]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const row = btn.closest('.item');
+      const id = row.dataset.id;
+      const role = row.querySelector('.tRole').value;
+      const direction = row.querySelector('.tDir').value || null;
+      btn.disabled = true; btn.textContent = 'Сохраняем…';
+      const { error: upErr } = await sb.from('profiles').update({ role, direction: role==='admin'?null:direction }).eq('id', id);
+      btn.disabled = false; btn.textContent = upErr ? 'Ошибка' : 'Сохранено';
+      if(!upErr) setTimeout(()=>{ btn.textContent = 'Сохранить'; }, 1500);
+      else console.error('profile update failed', upErr);
+    });
+  });
+}
+
 function render(){
   renderRail();
   if(state.dir==='home'){
@@ -714,6 +805,15 @@ function render(){
       <div class="header"><div><div class="eyebrow">главная</div><h1>Eventer Workspace</h1></div></div>
       <div id="panel"></div>`;
     renderHome(document.getElementById('panel'));
+    return;
+  }
+  if(state.dir==='team'){
+    clearUnsubs();
+    const main = document.getElementById('main');
+    main.innerHTML = `
+      <div class="header"><div><div class="eyebrow">администрирование</div><h1>Сотрудники</h1></div></div>
+      <div id="panel"></div>`;
+    renderTeam(document.getElementById('panel'));
     return;
   }
   const dir = DIRECTIONS.find(d=>d.slug===state.dir);
@@ -1446,12 +1546,15 @@ function renderRecordList(panel, kind, dirSlug){
   const labels = { decisions:{add:'Зафиксировать решение', ph:'Короткая формулировка решения…', empty:'Решений пока нет.'},
                     context:{add:'Добавить заметку', ph:'Контекст, факт, ссылка…', empty:'Контекста пока нет.'} };
   const L = labels[kind];
+  // Решения/Контекст are read-only for employees — they can see the history
+  // but only the admin records new ones (mirrors the Supabase RLS policy).
+  const readOnly = !isAdmin();
   panel.innerHTML = `
     <div class="card">
-      <div class="row">
+      ${readOnly ? '' : `<div class="row">
         <input type="text" id="newItem" placeholder="${L.ph}"/>
         <button class="btn" id="addItem">${L.add}</button>
-      </div>
+      </div>`}
       <div class="list" id="itemList"><div class="empty">Загрузка…</div></div>
     </div>`;
   if(!db){ panel.querySelector('#itemList').innerHTML = '<div class="empty">База данных недоступна в этом окне.</div>'; return; }
@@ -1482,7 +1585,7 @@ function renderRecordList(panel, kind, dirSlug){
           ${body?`<button class="task-exp" data-id="${id}">${expanded?'▾':'▸'}</button>`:'<span class="task-exp" style="visibility:hidden">▸</span>'}
           ${tag && kind!=='decisions' ? `<span class="pill">${tag.replace(/</g,'&lt;')}</span>` : ''}
           <div class="txt" style="flex:1"><b style="opacity:.75">${noLabel}:</b> ${title.replace(/</g,'&lt;')}</div>
-          <button class="del" title="${armed?'Нажмите ещё раз, чтобы подтвердить удаление':'Удалить'}" style="margin-left:14px;flex-shrink:0;${armed?'background:#e5484d;color:#fff;border-radius:6px;padding:3px 10px;font-size:12px;border:none;cursor:pointer':'background:transparent;border:none;opacity:.55;cursor:pointer;font-size:14px'}">${armed?'Удалить?':'🗑'}</button>
+          ${readOnly ? '' : `<button class="del" title="${armed?'Нажмите ещё раз, чтобы подтвердить удаление':'Удалить'}" style="margin-left:14px;flex-shrink:0;${armed?'background:#e5484d;color:#fff;border-radius:6px;padding:3px 10px;font-size:12px;border:none;cursor:pointer':'background:transparent;border:none;opacity:.55;cursor:pointer;font-size:14px'}">${armed?'Удалить?':'🗑'}</button>`}
         </div>
         ${expanded && body ? `<div class="record-body" style="padding:8px 0 4px 30px;color:var(--fg-muted);white-space:pre-wrap">${body.replace(/</g,'&lt;')}</div>` : ''}
       </div>`;
@@ -1519,6 +1622,7 @@ function renderRecordList(panel, kind, dirSlug){
   }, err=>{ listEl.innerHTML = `<div class="empty">Нет доступа на чтение (${err.code}).</div>`; });
   unsubs[kind]=unsub;
 
+  if(readOnly) return;
   const input = panel.querySelector('#newItem');
   const addBtn = panel.querySelector('#addItem');
   async function submit(){
@@ -2034,8 +2138,40 @@ function showAuth(msg, kind){
   } else { m.style.display = 'none'; }
 }
 
+// ---------- Roles: admin (Kairat, full access) vs employee (locked to one
+// direction, read-only on Решения/Контекст — enforced both here in the UI
+// and, as the real security boundary, by the Supabase RLS policies). ----------
+let currentProfile = null; // { id, email, role: 'admin'|'employee', direction }
+function isAdmin(){ return !currentProfile || currentProfile.role === 'admin'; }
+function employeeDirection(){ return (!isAdmin() && currentProfile) ? currentProfile.direction : null; }
+async function loadProfile(){
+  if(!sb) { currentProfile = null; return; }
+  const { data: sess } = await sb.auth.getSession();
+  const uid = sess && sess.session && sess.session.user && sess.session.user.id;
+  if(!uid){ currentProfile = null; return; }
+  const { data, error } = await sb.from('profiles').select('*').eq('id', uid).maybeSingle();
+  if(error){ console.error('profile load failed', error); currentProfile = null; return; }
+  currentProfile = data || null;
+}
+
 async function startAppWithCloud(){
   db = supaShim;
+  await loadProfile();
+  if(!isAdmin() && !employeeDirection()){
+    // Signed in, but no admin has assigned a direction yet — show a plain
+    // waiting screen instead of a broken/empty Workspace.
+    showApp();
+    document.getElementById('main').innerHTML = `
+      <div class="header"><div><div class="eyebrow">доступ</div><h1>Ожидание назначения</h1></div></div>
+      <div class="card" style="max-width:480px">
+        <div style="margin-bottom:10px">Ваш аккаунт подтверждён (${(currentProfile&&currentProfile.email)||''}), но администратор ещё не назначил вам направление. Обратитесь к Кайрату.</div>
+        <button class="btn ghost" id="waitLogout">Выйти</button>
+      </div>`;
+    document.getElementById('railList').innerHTML = '';
+    const lo = document.getElementById('waitLogout');
+    if(lo) lo.addEventListener('click', ()=> sb.auth.signOut());
+    return;
+  }
   await migrateLocalToCloudIfEmpty();
   await syncAllFromCloud();
   subscribeRealtime();
