@@ -464,8 +464,8 @@ function renderHome(panel){
               </label>
             </div>
             <div class="row" style="gap:7px">
-              <input type="date" id="newEventDate" style="flex:1"/>
-              <input type="time" id="newEventTime" style="flex:1"/>
+              <input type="date" id="newEventDate" lang="ru-RU" style="flex:1"/>
+              <input type="time" id="newEventTime" lang="ru-RU" step="60" style="flex:1"/>
             </div>
             <input type="text" id="newEventParticipants" placeholder="Участники (необязательно)"/>
             <input type="text" id="newEventTopic" placeholder="Тема (необязательно)"/>
@@ -581,9 +581,11 @@ function renderHome(panel){
   // events
   const eventsCol = db.collection('events');
   const eventListEl = panel.querySelector('#eventList');
+  let eventDocsCache = [];
   const unsubEv = eventsCol.orderBy('when','asc').limit(50).onSnapshot(snap=>{
     const now = Date.now();
     const docs = snap.docs.map(d=>({id:d.id, data:d.data()})).filter(d=> !d.data.when || d.data.when >= now - 86400000);
+    eventDocsCache = docs;
     if(!docs.length){ eventListEl.innerHTML = '<div class="empty">Событий пока нет.</div>'; return; }
     eventListEl.innerHTML = docs.map(({id,data:v})=>{
       const typeLabel = v.type==='reminder' ? 'Напоминание' : 'Встреча';
@@ -592,7 +594,7 @@ function renderHome(panel){
       const metaBits = [typeLabel+onlineTag, timeLabel].filter(Boolean).join(' · ');
       const subBits = [v.topic, v.participants].filter(Boolean).join(' · ');
       return `
-      <div class="item" data-id="${id}">
+      <div class="item" data-id="${id}" style="cursor:pointer">
         <div style="flex:1;min-width:0">
           <div class="txt ${v.title?'':'empty'}">${(v.title||'').replace(/</g,'&lt;')}</div>
           <div style="font-size:11px;color:var(--fg-muted);margin-top:2px">${metaBits}</div>
@@ -603,8 +605,15 @@ function renderHome(panel){
         <button class="del" title="Удалить">×</button>
       </div>`;
     }).join('');
+    eventListEl.querySelectorAll('.item').forEach(row=>{
+      row.addEventListener('click', (e)=>{
+        if(e.target.closest('.del')) return;
+        const id = row.dataset.id;
+        openEventModal(eventsCol, id, ()=>eventDocsCache.find(d=>d.id===id));
+      });
+    });
     eventListEl.querySelectorAll('.del').forEach(btn=>{
-      btn.addEventListener('click', ()=>{ eventsCol.doc(btn.closest('.item').dataset.id).delete().catch(()=>{}); });
+      btn.addEventListener('click', (e)=>{ e.stopPropagation(); eventsCol.doc(btn.closest('.item').dataset.id).delete().catch(()=>{}); });
     });
   }, ()=>{ eventListEl.innerHTML = '<div class="empty">Нет доступа на чтение.</div>'; });
   unsubs['home-events']=unsubEv;
@@ -657,17 +666,25 @@ function renderHome(panel){
   // notes
   const notesCol = db.collection('notes');
   const noteListEl = panel.querySelector('#noteList');
+  let noteDocsCache = [];
   const unsubNotes = notesCol.orderBy('ts','desc').limit(50).onSnapshot(snap=>{
-    if(snap.empty){ noteListEl.innerHTML = '<div class="empty">Заметок пока нет.</div>'; return; }
-    noteListEl.innerHTML = snap.docs.map(d=>{
-      const v = d.data();
-      return `<div class="item" data-id="${d.id}">
+    noteDocsCache = snap.docs.map(d=>({id:d.id, data:d.data()}));
+    if(!noteDocsCache.length){ noteListEl.innerHTML = '<div class="empty">Заметок пока нет.</div>'; return; }
+    noteListEl.innerHTML = noteDocsCache.map(({id,data:v})=>{
+      return `<div class="item" data-id="${id}" style="cursor:pointer">
         <div class="txt">${(v.text||'').replace(/</g,'&lt;')}</div>
         <button class="del" title="Удалить">×</button>
       </div>`;
     }).join('');
+    noteListEl.querySelectorAll('.item').forEach(row=>{
+      row.addEventListener('click', (e)=>{
+        if(e.target.closest('.del')) return;
+        const id = row.dataset.id;
+        openNoteModal(notesCol, id, ()=>noteDocsCache.find(d=>d.id===id));
+      });
+    });
     noteListEl.querySelectorAll('.del').forEach(btn=>{
-      btn.addEventListener('click', ()=>{ notesCol.doc(btn.closest('.item').dataset.id).delete().catch(()=>{}); });
+      btn.addEventListener('click', (e)=>{ e.stopPropagation(); notesCol.doc(btn.closest('.item').dataset.id).delete().catch(()=>{}); });
     });
   }, ()=>{ noteListEl.innerHTML = '<div class="empty">Нет доступа на чтение.</div>'; });
   unsubs['home-notes']=unsubNotes;
@@ -1158,6 +1175,131 @@ function closeTaskModal(){
   if(el) el.remove();
   activeModalId = null; activeModalGetter = null;
 }
+
+// ---------- Generic small edit modal (events, notes) ----------
+function closeGenericModal(){
+  const el = document.getElementById('genericModalBackdrop');
+  if(el) el.remove();
+}
+function openEventModal(col, id, getter){
+  closeGenericModal(); closeTaskModal();
+  const cur = getter(); if(!cur) return;
+  const v = cur.data;
+  const backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop';
+  backdrop.id = 'genericModalBackdrop';
+  backdrop.innerHTML = `
+    <div class="modal-card">
+      <div class="modal-head">
+        <div style="flex:1">
+          <textarea class="modal-title-input" id="gmTitle" rows="2" placeholder="Название события…">${(v.title||'').replace(/</g,'&lt;')}</textarea>
+        </div>
+        <button class="modal-close" id="gmClose">×</button>
+      </div>
+      <div class="modal-row">
+        <div class="modal-field" style="flex:1;min-width:140px">
+          <div class="modal-label">Тип</div>
+          <select id="gmType" style="width:100%">
+            <option value="meeting" ${v.type!=='reminder'?'selected':''}>Встреча</option>
+            <option value="reminder" ${v.type==='reminder'?'selected':''}>Напоминание</option>
+          </select>
+        </div>
+        <div class="modal-field" id="gmOnlineWrap" style="flex:none;align-self:flex-end;padding-bottom:9px">
+          <label style="display:flex;align-items:center;gap:5px;font-size:12.5px;color:var(--fg-muted);white-space:nowrap">
+            <input type="checkbox" id="gmOnline" ${v.online?'checked':''}/> Онлайн
+          </label>
+        </div>
+      </div>
+      <div class="modal-row">
+        <div class="modal-field" style="flex:1;min-width:140px">
+          <div class="modal-label">Дата</div>
+          <input type="date" id="gmDate" lang="ru-RU" value="${v.when ? new Date(v.when).toISOString().slice(0,10) : ''}"/>
+        </div>
+        <div class="modal-field" style="flex:1;min-width:120px">
+          <div class="modal-label">Время</div>
+          <input type="time" id="gmTime" lang="ru-RU" step="60" value="${v.when && v.hasTime ? new Date(v.when).toTimeString().slice(0,5) : ''}"/>
+        </div>
+      </div>
+      <div class="modal-field">
+        <div class="modal-label">Участники</div>
+        <input type="text" id="gmParticipants" value="${(v.participants||'').replace(/"/g,'&quot;')}" placeholder="Участники (необязательно)"/>
+      </div>
+      <div class="modal-field">
+        <div class="modal-label">Тема</div>
+        <input type="text" id="gmTopic" value="${(v.topic||'').replace(/"/g,'&quot;')}" placeholder="Тема (необязательно)"/>
+      </div>
+      <div class="modal-field">
+        <div class="modal-label">Проект</div>
+        <input type="text" id="gmProject" value="${(v.project||'').replace(/"/g,'&quot;')}" placeholder="Проект (необязательно)"/>
+      </div>
+      <div class="modal-field">
+        <div class="modal-label">Заметка</div>
+        <textarea id="gmNote" rows="3" placeholder="Заметка (необязательно)">${(v.note||'').replace(/</g,'&lt;')}</textarea>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-delete" id="gmDelete">Удалить событие</button>
+        <button class="btn" id="gmDone">Готово</button>
+      </div>
+    </div>`;
+  document.body.appendChild(backdrop);
+  function patch(data){ col.doc(id).update(data).catch(()=>{}); }
+  function recomputeWhen(){
+    const dateVal = backdrop.querySelector('#gmDate').value;
+    const timeVal = backdrop.querySelector('#gmTime').value;
+    const when = dateVal ? new Date(dateVal+'T'+(timeVal||'00:00')+':00').getTime() : null;
+    patch({ when, hasTime: !!timeVal });
+  }
+  backdrop.addEventListener('click', e=>{ if(e.target===backdrop) closeGenericModal(); });
+  backdrop.querySelector('#gmClose').addEventListener('click', closeGenericModal);
+  backdrop.querySelector('#gmDone').addEventListener('click', closeGenericModal);
+  backdrop.querySelector('#gmDelete').addEventListener('click', ()=>{ col.doc(id).delete().catch(()=>{}); closeGenericModal(); });
+  backdrop.querySelector('#gmTitle').addEventListener('blur', e=> patch({ title: e.target.value.trim() }));
+  const typeEl = backdrop.querySelector('#gmType');
+  const onlineWrap = backdrop.querySelector('#gmOnlineWrap');
+  function syncOnline(){ onlineWrap.style.display = typeEl.value==='meeting' ? '' : 'none'; }
+  syncOnline();
+  typeEl.addEventListener('change', ()=>{
+    syncOnline();
+    const online = typeEl.value==='meeting' && backdrop.querySelector('#gmOnline').checked;
+    patch({ type: typeEl.value, online });
+  });
+  backdrop.querySelector('#gmOnline').addEventListener('change', e=> patch({ online: e.target.checked }));
+  backdrop.querySelector('#gmDate').addEventListener('change', recomputeWhen);
+  backdrop.querySelector('#gmTime').addEventListener('change', recomputeWhen);
+  backdrop.querySelector('#gmParticipants').addEventListener('blur', e=> patch({ participants: e.target.value.trim() }));
+  backdrop.querySelector('#gmTopic').addEventListener('blur', e=> patch({ topic: e.target.value.trim() }));
+  backdrop.querySelector('#gmProject').addEventListener('blur', e=> patch({ project: e.target.value.trim() }));
+  backdrop.querySelector('#gmNote').addEventListener('blur', e=> patch({ note: e.target.value.trim() }));
+}
+function openNoteModal(col, id, getter){
+  closeGenericModal(); closeTaskModal();
+  const cur = getter(); if(!cur) return;
+  const v = cur.data;
+  const backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop';
+  backdrop.id = 'genericModalBackdrop';
+  backdrop.innerHTML = `
+    <div class="modal-card">
+      <div class="modal-head">
+        <div style="flex:1">
+          <textarea class="modal-title-input" id="gmNoteText" rows="4" placeholder="Текст заметки…">${(v.text||'').replace(/</g,'&lt;')}</textarea>
+        </div>
+        <button class="modal-close" id="gmClose">×</button>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-delete" id="gmDelete">Удалить заметку</button>
+        <button class="btn" id="gmDone">Готово</button>
+      </div>
+    </div>`;
+  document.body.appendChild(backdrop);
+  function patch(data){ col.doc(id).update(data).catch(()=>{}); }
+  backdrop.addEventListener('click', e=>{ if(e.target===backdrop) closeGenericModal(); });
+  backdrop.querySelector('#gmClose').addEventListener('click', closeGenericModal);
+  backdrop.querySelector('#gmDone').addEventListener('click', closeGenericModal);
+  backdrop.querySelector('#gmDelete').addEventListener('click', ()=>{ col.doc(id).delete().catch(()=>{}); closeGenericModal(); });
+  backdrop.querySelector('#gmNoteText').addEventListener('blur', e=> patch({ text: e.target.value.trim() }));
+  backdrop.querySelector('#gmNoteText').focus();
+}
 function openTaskModal(col, id, getter){
   closeTaskModal();
   activeModalId = id; activeModalGetter = getter;
@@ -1322,12 +1464,13 @@ function renderRecordList(panel, kind, dirSlug){
 
   function draw(){
     if(!docsCache.length){ listEl.innerHTML = `<div class="empty">${L.empty}</div>`; return; }
-    // Numbering is chronological (oldest = №1), so the list is rendered in the
-    // same ascending order — otherwise higher numbers appear above lower ones.
+    // Numbering stays chronological (oldest = №1) regardless of display order,
+    // but the list itself is shown newest-first, like tasks and events.
     const ascOrder = docsCache.slice().sort((a,b)=> (a.v.ts||0)-(b.v.ts||0));
     const numById = {};
     ascOrder.forEach((d,i)=>{ numById[d.id] = i+1; });
-    listEl.innerHTML = ascOrder.map(({id,v})=>{
+    const displayOrder = docsCache.slice().sort((a,b)=> (b.v.ts||0)-(a.v.ts||0));
+    listEl.innerHTML = displayOrder.map(({id,v})=>{
       const { tag, title, body } = splitRecordText(v.text);
       const expanded = openSet.has(id);
       const armed = deleteArmed.has(id);
