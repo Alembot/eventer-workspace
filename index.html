@@ -457,25 +457,19 @@ function renderRailFooter(){
   }
   if(!currentProfile){ footer.innerHTML = ''; return; }
 
-  // "Режим работы": only the real admin can switch. Collapsed by default —
-  // shows just the active row (Кайрат, or whichever direction is being
-  // previewed); clicking it expands the full list of all 14 directions to
-  // jump into any of them. Matches K-Workspace's bottom-left card, but
-  // compact by default rather than always listing everyone.
-  const activeLabel = viewAsDirection ? directorTitle(viewAsDirection) : (currentProfile.email||'Кайрат').split('@')[0];
-  const activeSub = viewAsDirection ? 'Тестовый доступ · ' + ((DIRECTIONS.find(d=>d.slug===viewAsDirection)||{}).name||'') : 'Администратор Workspace';
-  const modeHtml = isRealAdmin() ? `
-    <div style="padding:12px 16px;border-top:1px solid var(--rail-active)">
-      <div style="font-size:10.5px;letter-spacing:.04em;color:var(--rail-fg-dim);margin-bottom:8px">РЕЖИМ РАБОТЫ</div>
-      <div class="mode-row sel" id="modeActiveRow" style="cursor:pointer;border-radius:8px;padding:7px 8px;margin:0 -8px;display:flex;align-items:center;justify-content:space-between;gap:6px">
-        <div>
-          <div style="font-size:13px;font-weight:600;color:var(--rail-fg)">${activeLabel}</div>
-          <div style="font-size:11.5px;color:var(--rail-fg-dim)">${activeSub}</div>
-        </div>
-        <div style="font-size:11px;color:var(--rail-fg-dim);transform:${modeListOpen?'rotate(180deg)':'none'}">▾</div>
-      </div>
-      <div style="max-height:220px;overflow-y:auto;${modeListOpen?'':'display:none'}" id="modeList">
-        <div class="mode-row ${!viewAsDirection?'sel':''}" data-mode="admin" style="cursor:pointer;border-radius:8px;padding:7px 8px;margin:6px -8px 2px">
+  // "Режим работы": only the real admin can switch. The identity block itself
+  // (role line, bottom of the sidebar) IS the collapsed trigger — no separate
+  // duplicate row above it. Clicking the role line expands the full list of
+  // all 14 directions (shown just above it) to jump into any of them.
+  const roleLine = viewAsDirection
+    ? 'Смотрите как: ' + directorTitle(viewAsDirection)
+    : (isRealAdmin() ? 'Администратор' : 'Сотрудник · ' + ((DIRECTIONS.find(d=>d.slug===currentProfile.direction)||{}).name||''));
+
+  const modeHtml = (isRealAdmin() && modeListOpen) ? `
+    <div style="padding:10px 16px 4px;border-top:1px solid var(--rail-active)" id="modeList">
+      <div style="font-size:10.5px;letter-spacing:.04em;color:var(--rail-fg-dim);margin-bottom:6px">РЕЖИМ РАБОТЫ</div>
+      <div style="max-height:220px;overflow-y:auto">
+        <div class="mode-row ${!viewAsDirection?'sel':''}" data-mode="admin" style="cursor:pointer;border-radius:8px;padding:7px 8px;margin:0 -8px 2px">
           <div style="font-size:13px;font-weight:600;color:var(--rail-fg)">${(currentProfile.email||'Кайрат').split('@')[0]}</div>
           <div style="font-size:11.5px;color:var(--rail-fg-dim)">Администратор Workspace</div>
         </div>
@@ -487,15 +481,14 @@ function renderRailFooter(){
       </div>
     </div>` : '';
 
-  const roleLine = viewAsDirection
-    ? 'Смотрите как: ' + directorTitle(viewAsDirection)
-    : (isRealAdmin() ? 'Администратор' : 'Сотрудник · ' + ((DIRECTIONS.find(d=>d.slug===currentProfile.direction)||{}).name||''));
-
   footer.innerHTML = `
     ${modeHtml}
     <div style="padding:14px 16px;border-top:1px solid var(--rail-active);font-size:12px;color:var(--rail-fg-dim)">
       <div style="margin-bottom:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--rail-fg)">${(currentProfile.email||'').replace(/</g,'&lt;')}</div>
-      <div style="margin-bottom:8px">${roleLine}</div>
+      <div id="modeActiveRow" style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:8px;${isRealAdmin()?'cursor:pointer':''}">
+        <span>${roleLine}</span>
+        ${isRealAdmin() ? `<span style="font-size:11px;transform:${modeListOpen?'rotate(180deg)':'none'}">▾</span>` : ''}
+      </div>
       <button id="railLogout" style="width:100%;padding:6px;font-size:12px;background:none;border:1px solid var(--rail-fg-dim);color:var(--rail-fg);border-radius:7px;cursor:pointer">Выйти</button>
     </div>`;
 
