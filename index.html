@@ -171,19 +171,33 @@ textarea{resize:vertical;min-height:54px}
 .floating-menu .fm-addrow button{flex:none;padding:6px 10px;font-size:12px}
 .filter-count{opacity:.65;font-size:11px;margin-left:3px}
 .modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:50;padding:20px}
-.modal-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;max-width:560px;width:100%;max-height:90vh;overflow-y:auto;padding:22px}
-.modal-head{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:16px}
+/* modal-card is a fixed-height flex column: head and footer never scroll
+   away, only modal-body does -- this is what keeps the footer's action
+   buttons always reachable instead of sliding off the bottom of the screen
+   on a tall form / short viewport. */
+.modal-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;max-width:560px;width:100%;max-height:92vh;display:flex;flex-direction:column;overflow:hidden;padding:0}
+.modal-head{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;padding:20px 22px 12px;flex:none}
+.modal-body{overflow-y:auto;padding:2px 22px 4px;flex:1;min-height:0}
 .modal-close{background:none;border:none;color:var(--fg-muted);font-size:20px;line-height:1;flex:none}
 .modal-close:hover{color:var(--fg)}
 .modal-field{margin-bottom:14px}
 .modal-label{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--fg-muted);margin-bottom:6px}
 .modal-field textarea{width:100%;background:var(--surface-2);border:1px solid var(--border);border-radius:7px;color:var(--fg);padding:8px 10px;font:inherit;resize:vertical;min-height:40px}
+.modal-field select{width:100%;background:var(--surface-2);border:1px solid var(--border);border-radius:7px;color:var(--fg);padding:8px 10px;font:inherit}
 .modal-title-input{font-family:var(--display);font-size:17px;font-weight:600}
 .modal-row{display:flex;gap:10px;flex-wrap:wrap}
 .modal-btns{display:flex;gap:6px;flex-wrap:wrap}
 .modal-btns button{padding:6px 12px;border-radius:7px;border:1px solid var(--border);background:var(--surface);color:var(--fg);font-size:12.5px}
 .modal-btns button.active{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}
-.modal-footer{display:flex;justify-content:space-between;align-items:center;margin-top:18px;padding-top:14px;border-top:1px solid var(--border)}
+/* collapsible long-text fields (description, expected result): shown as a
+   2-line clamp by default with an explicit "edit" affordance, instead of a
+   tall always-open textarea that's usually empty and eats vertical space */
+.modal-collapse-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px}
+.modal-collapse-head .modal-label{margin-bottom:0}
+.modal-edit-toggle{background:none;border:none;color:var(--accent);font-size:11px;font-weight:600;padding:0;flex:none;white-space:nowrap}
+.modal-collapse-text{font-size:13px;line-height:1.45;color:var(--fg);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;cursor:pointer}
+.modal-collapse-text.empty{color:var(--fg-muted)}
+.modal-footer{display:flex;justify-content:space-between;align-items:center;padding:14px 22px calc(14px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--border);flex:none;background:var(--surface)}
 .modal-delete{background:none;border:1px solid var(--border);color:var(--bad);border-radius:7px;padding:7px 12px;font-size:12.5px}
 .empty{color:var(--fg-muted);font-size:13px;padding:18px 0;text-align:center}
 .exp-row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px}
@@ -1025,6 +1039,44 @@ function remindSelectHTML(id, current){
   const sel = Number(current) > 0 ? Number(current) : 30;
   return `<select id="${id}" style="width:100%">${REMINDER_OPTIONS.map(o=>`<option value="${o.v}" ${o.v===sel?'selected':''}>${o.l}</option>`).join('')}</select>`;
 }
+// A long-text field (task description, expected result) collapsed to 2 lines
+// by default, with an explicit "✎ Редактировать" toggle that swaps in a plain
+// textarea. Keeps the modal compact without hiding that the field has content.
+function collapsibleFieldHTML(id, label, value, placeholder){
+  const text = (value||'').trim();
+  const shown = text ? text.replace(/</g,'&lt;') : placeholder;
+  return `<div class="modal-field">
+    <div class="modal-collapse-head">
+      <div class="modal-label">${label}</div>
+      <button type="button" class="modal-edit-toggle" data-for="${id}">✎ Редактировать</button>
+    </div>
+    <div class="modal-collapse-text ${text?'':'empty'}" id="${id}_view" data-for="${id}">${shown}</div>
+    <textarea id="${id}" rows="4" style="display:none" placeholder="${placeholder}">${(value||'').replace(/</g,'&lt;')}</textarea>
+  </div>`;
+}
+// Wires one collapsible field: tapping the label or the collapsed text opens
+// the textarea for editing; blurring it saves and collapses back to the clamp.
+function wireCollapsibleField(backdrop, id, placeholder, onSave){
+  const view = backdrop.querySelector('#'+id+'_view');
+  const toggle = backdrop.querySelector('.modal-edit-toggle[data-for="'+id+'"]');
+  const textarea = backdrop.querySelector('#'+id);
+  function openEdit(){
+    view.style.display = 'none';
+    textarea.style.display = '';
+    textarea.focus();
+  }
+  function closeEdit(){
+    const val = textarea.value.trim();
+    onSave(val);
+    view.textContent = val || placeholder;
+    view.classList.toggle('empty', !val);
+    textarea.style.display = 'none';
+    view.style.display = '';
+  }
+  toggle.addEventListener('click', openEdit);
+  view.addEventListener('click', openEdit);
+  textarea.addEventListener('blur', closeEdit);
+}
 function fmtDue(ts){
   if(!ts) return '';
   const d = new Date(ts);
@@ -1453,6 +1505,7 @@ function openEventModal(col, id, getter){
         </div>
         <button class="modal-close" id="gmClose">×</button>
       </div>
+      <div class="modal-body">
       <div class="modal-row">
         <div class="modal-field" style="flex:1;min-width:140px">
           <div class="modal-label">Тип</div>
@@ -1496,6 +1549,7 @@ function openEventModal(col, id, getter){
       <div class="modal-field">
         <div class="modal-label">Заметка</div>
         <textarea id="gmNote" rows="3" placeholder="Заметка (необязательно)">${(v.note||'').replace(/</g,'&lt;')}</textarea>
+      </div>
       </div>
       <div class="modal-footer">
         <button class="modal-delete" id="gmDelete">Удалить событие</button>
@@ -1582,47 +1636,49 @@ function openTaskModal(col, id, getter){
         </div>
         <button class="modal-close" id="mClose">×</button>
       </div>
-      <div class="modal-row">
-        <div class="modal-field" style="flex:1;min-width:160px">
+      <div class="modal-body">
+        ${collapsibleFieldHTML('mDesc', 'Описание', v.description, 'Описание задачи…')}
+        <div class="modal-field">
           <div class="modal-label">Проект</div>
           <input type="text" id="mProj" value="${(v.project||'').replace(/"/g,'&quot;')}" placeholder="Без проекта"/>
         </div>
-        <div class="modal-field" style="flex:1;min-width:120px">
-          <div class="modal-label">Срок</div>
-          <input type="date" id="mDue" value="${v.due ? new Date(v.due).toISOString().slice(0,10) : ''}"/>
+        <div class="modal-row">
+          <div class="modal-field" style="flex:1;min-width:100px">
+            <div class="modal-label">Срок</div>
+            <input type="date" id="mDue" value="${v.due ? new Date(v.due).toISOString().slice(0,10) : ''}"/>
+          </div>
+          <div class="modal-field" style="flex:1;min-width:95px">
+            <div class="modal-label">Время</div>
+            <input type="time" id="mDueTime" lang="ru-RU" step="60" value="${v.due && v.hasDueTime ? new Date(v.due).toTimeString().slice(0,5) : ''}"/>
+          </div>
+          <div class="modal-field" id="mRemindWrap" style="flex:1;min-width:110px;${v.due && v.hasDueTime ? '' : 'display:none'}">
+            <div class="modal-label">Напомнить</div>
+            ${remindSelectHTML('mRemind', v.reminderMinutes)}
+          </div>
         </div>
-        <div class="modal-field" style="flex:1;min-width:110px">
-          <div class="modal-label">Время</div>
-          <input type="time" id="mDueTime" lang="ru-RU" step="60" value="${v.due && v.hasDueTime ? new Date(v.due).toTimeString().slice(0,5) : ''}"/>
+        <div class="modal-row">
+          <div class="modal-field" style="flex:1;min-width:140px">
+            <div class="modal-label">Приоритет</div>
+            <select id="mPri">${Object.entries(PRIORITY_LABELS).map(([k,l])=>`<option value="${k}" ${k===pri?'selected':''}>${l}</option>`).join('')}</select>
+          </div>
+          <div class="modal-field" style="flex:1;min-width:140px">
+            <div class="modal-label">Статус</div>
+            <select id="mStatus">
+              <option value="active" ${status==='active'?'selected':''}>Активна</option>
+              <option value="postponed" ${status==='postponed'?'selected':''}>Отложена</option>
+              <option value="done" ${status==='done'?'selected':''}>Завершена</option>
+            </select>
+          </div>
         </div>
-      </div>
-      <div class="modal-field" id="mRemindWrap" style="${v.due && v.hasDueTime ? '' : 'display:none'}">
-        <div class="modal-label">Напомнить за</div>
-        ${remindSelectHTML('mRemind', v.reminderMinutes)}
-      </div>
-      <div class="modal-field">
-        <div class="modal-label">Приоритет</div>
-        <div class="modal-btns" id="mPri">${Object.entries(PRIORITY_LABELS).map(([k,l])=>`<button data-v="${k}" class="${k===pri?'active':''}">${l}</button>`).join('')}</div>
-      </div>
-      <div class="modal-field">
-        <div class="modal-label">Статус</div>
-        <div class="modal-btns" id="mStatus">
-          <button data-v="active" class="${status==='active'?'active':''}">Активна</button>
-          <button data-v="postponed" class="${status==='postponed'?'active':''}">Отложена</button>
-          <button data-v="done" class="${status==='done'?'active':''}">Завершена</button>
+        <div class="modal-field">
+          <div class="modal-label">Ответственный</div>
+          <input type="text" id="mResp" value="${(v.responsible||'').replace(/"/g,'&quot;')}" placeholder="Кто отвечает за задачу"/>
         </div>
-      </div>
-      <div class="modal-field">
-        <div class="modal-label">Ответственный</div>
-        <input type="text" id="mResp" value="${(v.responsible||'').replace(/"/g,'&quot;')}" placeholder="Кто отвечает за задачу"/>
-      </div>
-      <div class="modal-field">
-        <div class="modal-label">Ожидаемый результат</div>
-        <textarea id="mExpected" rows="3" placeholder="Что должно быть на выходе…">${(v.expected||'').replace(/</g,'&lt;')}</textarea>
-      </div>
-      <div class="modal-field">
-        <div class="modal-label">Чек-лист</div>
-        <div class="task-checklist" id="mChecklist" style="border-top:none;padding:0;padding-left:0"></div>
+        ${collapsibleFieldHTML('mExpected', 'Ожидаемый результат', v.expected, 'Что должно быть на выходе…')}
+        <div class="modal-field">
+          <div class="modal-label">Чек-лист</div>
+          <div class="task-checklist" id="mChecklist" style="border-top:none;padding:0;padding-left:0"></div>
+        </div>
       </div>
       <div class="modal-footer">
         <button class="modal-delete" id="mDelete">Удалить задачу</button>
@@ -1668,20 +1724,10 @@ function openTaskModal(col, id, getter){
   backdrop.querySelector('#mRemind').addEventListener('change', e=> patch({ reminderMinutes: Number(e.target.value) }));
   const respEl = backdrop.querySelector('#mResp');
   respEl.addEventListener('blur', ()=> patch({ responsible: respEl.value.trim() }));
-  const expEl = backdrop.querySelector('#mExpected');
-  expEl.addEventListener('blur', ()=> patch({ expected: expEl.value.trim() }));
-  backdrop.querySelector('#mPri').querySelectorAll('button').forEach(btn=>{
-    btn.addEventListener('click', ()=>{
-      patch({ priority: btn.dataset.v });
-      backdrop.querySelector('#mPri').querySelectorAll('button').forEach(b=>b.classList.toggle('active', b===btn));
-    });
-  });
-  backdrop.querySelector('#mStatus').querySelectorAll('button').forEach(btn=>{
-    btn.addEventListener('click', ()=>{
-      patch({ status: btn.dataset.v });
-      backdrop.querySelector('#mStatus').querySelectorAll('button').forEach(b=>b.classList.toggle('active', b===btn));
-    });
-  });
+  wireCollapsibleField(backdrop, 'mDesc', 'Описание задачи…', (val)=> patch({ description: val||null }));
+  wireCollapsibleField(backdrop, 'mExpected', 'Что должно быть на выходе…', (val)=> patch({ expected: val||null }));
+  backdrop.querySelector('#mPri').addEventListener('change', e=> patch({ priority: e.target.value }));
+  backdrop.querySelector('#mStatus').addEventListener('change', e=> patch({ status: e.target.value }));
   const checklistBox = backdrop.querySelector('#mChecklist');
   function renderChecklist(){
     const focusWasOnInput = document.activeElement && document.activeElement.classList.contains('ciInput');
