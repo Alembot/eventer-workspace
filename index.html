@@ -2585,6 +2585,23 @@ async function initPush(){
     const sub = await swReg.pushManager.getSubscription();
     pushSubscribed = !!sub;
   }catch(e){ console.error('sw register failed', e); }
+  // Clear the home-screen badge whenever the app is actually open and visible —
+  // not just when a notification was tapped — so it never sits there stale
+  // once you've already seen what's going on inside.
+  clearAppBadgeAndCounter();
+  document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') clearAppBadgeAndCounter(); });
+}
+function clearAppBadgeAndCounter(){
+  try{ if('clearAppBadge' in navigator) navigator.clearAppBadge().catch(()=>{}); }catch(e){}
+  try{
+    const req = indexedDB.open('ew-badge', 1);
+    req.onupgradeneeded = ()=> req.result.createObjectStore('kv');
+    req.onsuccess = ()=>{
+      const db = req.result;
+      const tx = db.transaction('kv','readwrite');
+      tx.objectStore('kv').put(0, 'count');
+    };
+  }catch(e){}
 }
 async function enablePush(){
   if(!swReg) await initPush();
