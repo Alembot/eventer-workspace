@@ -1642,6 +1642,31 @@ function applyAppFixes(){
   }catch(e){ console.error('app fix failed', e); }
 }
 
+function applySystemDecisions(){
+  // Same boot-time merge pattern as applyAppFixes: add specific system-wide
+  // decisions by id if missing, without touching anything else the user
+  // has already added/edited in this collection.
+  try{
+    const key = lsKey('decisions');
+    let decisions = JSON.parse(localStorage.getItem(key) || '[]');
+    const adds = [
+      {id:'sys_dec_2026_10_03_eventer_workspace', direction:'backoffice', ws_id:1, text:
+        '[ПРИНЯТО] Eventer Workspace — единый источник решений, контекста и задач\n\n' +
+        'С 03.10.2026 Eventer Workspace (https://alembot.github.io/eventer-workspace/) — основная рабочая система по всем 14 направлениям бизнеса. Все новые решения, контекст и задачи фиксируются только здесь, в блоках «Решения», «Контекст», «Задачи» соответствующего направления.\n\n' +
+        'K-Workspace (kairat-workspace.k-rahimzhan.chatgpt.site) и его Главный менеджер переходят в статус справочного источника — только для обращения за старой информацией, зафиксированной до перехода. Новые записи туда больше не вносятся.\n\n' +
+        'Обоснование: iOS Universal Links делали K-Workspace неудобным как приложение на главном экране телефона; переход на собственный Eventer Workspace убирает эту проблему и закрепляет единственный актуальный источник данных для всех менеджеров и направлений.'}
+    ];
+    let changed = false;
+    adds.forEach(dec=>{
+      if(!decisions.find(d=>d.id===dec.id)){
+        decisions.push(Object.assign({done:false, ts:Date.now()}, dec));
+        changed = true;
+      }
+    });
+    if(changed) localStorage.setItem(key, JSON.stringify(decisions));
+  }catch(e){ console.error('system decision seed failed', e); }
+}
+
 async function boot(){
   // Standalone build: data lives in this browser's localStorage (per device,
   // no account/login, no cross-device sync). Finance tab's "live from Google
@@ -1649,6 +1674,7 @@ async function boot(){
   db = dbShim;
   seedIfEmpty();
   applyAppFixes();
+  applySystemDecisions();
   parseRoute();
   render();
 }
