@@ -424,11 +424,6 @@ function renderRail(){
     <li class="rail-item ${d.slug===state.dir?'active':''}" data-dir="${d.slug}">
       <span class="n">${d.n}</span><span>${d.name}</span>
     </li>`).join('');
-  if(isAdmin()){
-    html += `<li class="rail-item ${state.dir==='team'?'active':''}" data-dir="team" style="margin-top:10px;border-top:1px solid var(--border);padding-top:14px">
-      <span class="n">👥</span><span>Сотрудники</span>
-    </li>`;
-  }
   ul.innerHTML = html;
   ul.querySelectorAll('.rail-item').forEach(el=>{
     el.addEventListener('click', ()=>{
@@ -495,9 +490,12 @@ function renderRailFooter(){
         <span>${roleLine}</span>
         ${isRealAdmin() ? `<span style="font-size:11px;transform:${modeListOpen?'rotate(180deg)':'none'}">▾</span>` : ''}
       </div>
+      ${isAdmin() ? `<div id="railTeamLink" style="cursor:pointer;color:var(--rail-fg-dim);margin-bottom:8px" onmouseover="this.style.color='var(--rail-fg)'" onmouseout="this.style.color='var(--rail-fg-dim)'">👥 Управление сотрудниками</div>` : ''}
       <button id="railLogout" style="width:100%;padding:6px;font-size:12px;background:none;border:1px solid var(--rail-fg-dim);color:var(--rail-fg);border-radius:7px;cursor:pointer">Выйти</button>
     </div>`;
 
+  const teamLink = document.getElementById('railTeamLink');
+  if(teamLink) teamLink.addEventListener('click', ()=>{ location.hash = '#team'; });
   const activeRow = document.getElementById('modeActiveRow');
   if(activeRow) activeRow.addEventListener('click', ()=>{ modeListOpen = !modeListOpen; renderRailFooter(); });
   const modeList = document.getElementById('modeList');
