@@ -465,14 +465,20 @@ function renderRailFooter(){
     ? 'Смотрите как: ' + directorTitle(viewAsDirection)
     : (isRealAdmin() ? 'Администратор' : 'Сотрудник · ' + ((DIRECTIONS.find(d=>d.slug===currentProfile.direction)||{}).name||''));
 
+  // The admin's own identity (к.rahimzhan) is already shown permanently in
+  // the block below — it must NOT also appear as a row inside this dropdown.
+  // The dropdown only lists the 14 directions, plus a "back to admin" row
+  // when currently previewing one (that's a distinct action, not a repeat
+  // of the identity line, since the identity line itself stays unclickable
+  // for switching — only the ▾ toggles the list).
   const modeHtml = (isRealAdmin() && modeListOpen) ? `
     <div style="padding:10px 16px 4px;border-top:1px solid var(--rail-active)" id="modeList">
       <div style="font-size:10.5px;letter-spacing:.04em;color:var(--rail-fg-dim);margin-bottom:6px">РЕЖИМ РАБОТЫ</div>
       <div style="max-height:220px;overflow-y:auto">
-        <div class="mode-row ${!viewAsDirection?'sel':''}" data-mode="admin" style="cursor:pointer;border-radius:8px;padding:7px 8px;margin:0 -8px 2px">
-          <div style="font-size:13px;font-weight:600;color:var(--rail-fg)">${(currentProfile.email||'Кайрат').split('@')[0]}</div>
-          <div style="font-size:11.5px;color:var(--rail-fg-dim)">Администратор Workspace</div>
-        </div>
+        ${viewAsDirection ? `
+        <div class="mode-row" data-mode="admin" style="cursor:pointer;border-radius:8px;padding:7px 8px;margin:0 -8px 2px">
+          <div style="font-size:13px;font-weight:600;color:var(--rail-fg)">← Вернуться к администратору</div>
+        </div>` : ''}
         ${DIRECTIONS.map(d=>`
           <div class="mode-row ${viewAsDirection===d.slug?'sel':''}" data-mode="${d.slug}" style="cursor:pointer;border-radius:8px;padding:7px 8px;margin:0 -8px">
             <div style="font-size:13px;font-weight:600;color:var(--rail-fg)">${directorTitle(d.slug)}</div>
