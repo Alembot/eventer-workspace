@@ -22,7 +22,13 @@ self.addEventListener('push', (event) => {
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const targetUrl = (event.notification.data && event.notification.data.url) || './';
+  const rawUrl = (event.notification.data && event.notification.data.url) || './';
+  // IMPORTANT: clients.openWindow()/client.navigate() resolve a relative URL
+  // against the service worker's OWN script location (sw.js), not the app's
+  // page. A bare "#home" therefore opened ".../sw.js#home" -- the raw source
+  // of this file -- instead of the app. Always resolve against the SW scope
+  // (the app's root) first.
+  const targetUrl = new URL(rawUrl, self.registration.scope).href;
   event.waitUntil((async () => {
     const allClients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
     for (const client of allClients) {
