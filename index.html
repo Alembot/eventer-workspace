@@ -457,19 +457,22 @@ function renderRailFooter(){
   }
   if(!currentProfile){ footer.innerHTML = ''; return; }
 
-  // "Режим работы": only the real admin can switch, and only while looking
-  // at an actual direction — matches K-Workspace's bottom-left card exactly.
-  const dirCtx = DIRECTIONS.find(d=>d.slug===(viewAsDirection||state.dir));
-  const modeHtml = (isRealAdmin() && dirCtx) ? `
-    <div style="padding:12px 16px;border-top:1px solid var(--border)">
-      <div style="font-size:10.5px;letter-spacing:.04em;color:var(--fg-muted);margin-bottom:8px">РЕЖИМ РАБОТЫ</div>
+  // "Режим работы": only the real admin can switch — list every direction so
+  // the admin can preview any employee's space from anywhere, not only while
+  // already looking at that direction. Matches K-Workspace's bottom-left card.
+  const modeHtml = isRealAdmin() ? `
+    <div style="padding:12px 16px;border-top:1px solid var(--rail-active)">
+      <div style="font-size:10.5px;letter-spacing:.04em;color:var(--rail-fg-dim);margin-bottom:8px">РЕЖИМ РАБОТЫ</div>
       <div class="mode-row ${!viewAsDirection?'sel':''}" data-mode="admin" style="cursor:pointer;border-radius:8px;padding:7px 8px;margin:0 -8px 2px">
-        <div style="font-size:13px;font-weight:600">${(currentProfile.email||'Кайрат').split('@')[0]}</div>
-        <div style="font-size:11.5px;color:var(--fg-muted)">Администратор Workspace</div>
+        <div style="font-size:13px;font-weight:600;color:var(--rail-fg)">${(currentProfile.email||'Кайрат').split('@')[0]}</div>
+        <div style="font-size:11.5px;color:var(--rail-fg-dim)">Администратор Workspace</div>
       </div>
-      <div class="mode-row ${viewAsDirection===dirCtx.slug?'sel':''}" data-mode="${dirCtx.slug}" style="cursor:pointer;border-radius:8px;padding:7px 8px;margin:0 -8px">
-        <div style="font-size:13px;font-weight:600">${directorTitle(dirCtx.slug)}</div>
-        <div style="font-size:11.5px;color:var(--fg-muted)">Тестовый доступ руководителя</div>
+      <div style="max-height:180px;overflow-y:auto">
+        ${DIRECTIONS.map(d=>`
+          <div class="mode-row ${viewAsDirection===d.slug?'sel':''}" data-mode="${d.slug}" style="cursor:pointer;border-radius:8px;padding:7px 8px;margin:0 -8px">
+            <div style="font-size:13px;font-weight:600;color:var(--rail-fg)">${directorTitle(d.slug)}</div>
+            <div style="font-size:11.5px;color:var(--rail-fg-dim)">Тестовый доступ · ${d.name}</div>
+          </div>`).join('')}
       </div>
     </div>` : '';
 
@@ -479,10 +482,10 @@ function renderRailFooter(){
 
   footer.innerHTML = `
     ${modeHtml}
-    <div style="padding:14px 16px;border-top:1px solid var(--border);font-size:12px;color:var(--fg-muted)">
-      <div style="margin-bottom:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${(currentProfile.email||'').replace(/</g,'&lt;')}</div>
+    <div style="padding:14px 16px;border-top:1px solid var(--rail-active);font-size:12px;color:var(--rail-fg-dim)">
+      <div style="margin-bottom:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--rail-fg)">${(currentProfile.email||'').replace(/</g,'&lt;')}</div>
       <div style="margin-bottom:8px">${roleLine}</div>
-      <button class="btn ghost" id="railLogout" style="width:100%;padding:6px;font-size:12px">Выйти</button>
+      <button id="railLogout" style="width:100%;padding:6px;font-size:12px;background:none;border:1px solid var(--rail-fg-dim);color:var(--rail-fg);border-radius:7px;cursor:pointer">Выйти</button>
     </div>`;
 
   footer.querySelectorAll('.mode-row').forEach(row=>{
@@ -496,6 +499,10 @@ function renderRailFooter(){
         viewAsDirection = mode;
         location.hash = '#'+mode+'/tasks';
       }
+      // location.hash updates synchronously; parseRoute() right away (instead
+      // of waiting for the async 'hashchange' event) avoids a render with
+      // stale state.dir/state.tab that showed as a flash/glitch on switch.
+      parseRoute();
       render();
     });
   });
