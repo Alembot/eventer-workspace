@@ -1252,21 +1252,27 @@ function renderRecordList(panel, kind, dirSlug){
   const q = col.where('direction','==',dirSlug).orderBy('ts','desc').limit(200);
   const listEl = panel.querySelector('#itemList');
   const openSet = new Set();
+  const deleteArmed = new Set();
   let docsCache = [];
 
   function draw(){
     if(!docsCache.length){ listEl.innerHTML = `<div class="empty">${L.empty}</div>`; return; }
+    const ascOrder = docsCache.slice().sort((a,b)=> (a.v.ts||0)-(b.v.ts||0));
+    const numById = {};
+    ascOrder.forEach((d,i)=>{ numById[d.id] = i+1; });
     listEl.innerHTML = docsCache.map(({id,v})=>{
       const { tag, title, body } = splitRecordText(v.text);
       const expanded = openSet.has(id);
-      const no = (kind==='decisions' && v.ws_id) ? `<span class="task-id">№${v.ws_id}</span>` : '';
+      const armed = deleteArmed.has(id);
+      const n = numById[id];
+      const dateStr = new Date(v.ts||Date.now()).toLocaleDateString('ru-RU');
+      const noLabel = kind==='decisions' ? `Решение №${n}` : `Контекст №${n} от ${dateStr}`;
       return `<div class="item record-item" data-id="${id}">
         <div class="record-head" data-id="${id}" style="display:flex;align-items:center;gap:8px;cursor:${body?'pointer':'default'}">
           ${body?`<button class="task-exp" data-id="${id}">${expanded?'▾':'▸'}</button>`:'<span class="task-exp" style="visibility:hidden">▸</span>'}
-          ${no}
           ${tag?`<span class="pill">${tag.replace(/</g,'&lt;')}</span>`:''}
-          <div class="txt" style="flex:1">${title.replace(/</g,'&lt;')}</div>
-          <button class="del" title="Удалить">×</button>
+          <div class="txt" style="flex:1"><b style="opacity:.75">${noLabel}:</b> ${title.replace(/</g,'&lt;')}</div>
+          <button class="del" title="${armed?'Нажмите ещё раз, чтобы подтвердить удаление':'Удалить'}" style="margin-left:14px;flex-shrink:0;${armed?'background:#e5484d;color:#fff;border-radius:6px;padding:3px 10px;font-size:12px;border:none;cursor:pointer':'background:transparent;border:none;opacity:.55;cursor:pointer;font-size:14px'}">${armed?'Удалить?':'🗑'}</button>
         </div>
         ${expanded && body ? `<div class="record-body" style="padding:8px 0 4px 30px;color:var(--fg-muted);white-space:pre-wrap">${body.replace(/</g,'&lt;')}</div>` : ''}
       </div>`;
@@ -1285,7 +1291,14 @@ function renderRecordList(panel, kind, dirSlug){
       btn.addEventListener('click', (e)=>{
         e.stopPropagation();
         const id = btn.closest('.item').dataset.id;
-        col.doc(id).delete().catch(()=>{});
+        if(deleteArmed.has(id)){
+          deleteArmed.delete(id);
+          col.doc(id).delete().catch(()=>{});
+        } else {
+          deleteArmed.add(id);
+          draw();
+          setTimeout(()=>{ if(deleteArmed.has(id)){ deleteArmed.delete(id); draw(); } }, 3000);
+        }
       });
     });
   }
