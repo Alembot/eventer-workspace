@@ -184,7 +184,11 @@ textarea{resize:vertical;min-height:54px}
 .modal-label{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--fg-muted);margin-bottom:6px}
 .modal-field textarea{width:100%;background:var(--surface-2);border:1px solid var(--border);border-radius:7px;color:var(--fg);padding:8px 10px;font:inherit;resize:vertical;min-height:40px}
 .modal-field select{width:100%;background:var(--surface-2);border:1px solid var(--border);border-radius:7px;color:var(--fg);padding:8px 10px;font:inherit}
-.modal-title-input{font-family:var(--display);font-size:17px;font-weight:600}
+.modal-title-input{font-family:var(--display);font-size:17px;font-weight:600;resize:none;overflow:hidden}
+/* Native iOS/Android date & time pickers otherwise render as their own
+   unstyled pill, clashing with the flat grey boxes used everywhere else
+   in the form -- force them into the same box look. */
+.modal-field input[type=date],.modal-field input[type=time]{width:100%;background:var(--surface-2);border:1px solid var(--border);border-radius:7px;color:var(--fg);padding:8px 10px;font:inherit;-webkit-appearance:none;appearance:none}
 .modal-row{display:flex;gap:10px;flex-wrap:wrap}
 .modal-btns{display:flex;gap:6px;flex-wrap:wrap}
 .modal-btns button{padding:6px 12px;border-radius:7px;border:1px solid var(--border);background:var(--surface);color:var(--fg);font-size:12.5px}
@@ -1035,6 +1039,17 @@ const REMINDER_OPTIONS = [
   {v:180, l:'за 3 часа'},
   {v:300, l:'за 5 часов'},
 ];
+// Fixed-rows textareas clip long text mid-line with no scroll affordance --
+// grow the title field to fit its content instead (capped so a huge paste
+// doesn't push the footer off-screen; the field scrolls past that).
+function autoGrowTextarea(el, maxPx){
+  function resize(){
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, maxPx||220) + 'px';
+  }
+  el.addEventListener('input', resize);
+  resize();
+}
 function remindSelectHTML(id, current){
   const sel = Number(current) > 0 ? Number(current) : 30;
   return `<select id="${id}" style="width:100%">${REMINDER_OPTIONS.map(o=>`<option value="${o.v}" ${o.v===sel?'selected':''}>${o.l}</option>`).join('')}</select>`;
@@ -1569,6 +1584,7 @@ function openEventModal(col, id, getter){
   backdrop.querySelector('#gmDone').addEventListener('click', closeGenericModal);
   backdrop.querySelector('#gmDelete').addEventListener('click', ()=>{ col.doc(id).delete().catch(()=>{}); closeGenericModal(); });
   backdrop.querySelector('#gmTitle').addEventListener('blur', e=> patch({ title: e.target.value.trim() }));
+  autoGrowTextarea(backdrop.querySelector('#gmTitle'));
   const typeEl = backdrop.querySelector('#gmType');
   const onlineWrap = backdrop.querySelector('#gmOnlineWrap');
   function syncOnline(){ onlineWrap.style.display = typeEl.value==='meeting' ? '' : 'none'; }
@@ -1614,6 +1630,7 @@ function openNoteModal(col, id, getter){
   backdrop.querySelector('#gmDone').addEventListener('click', closeGenericModal);
   backdrop.querySelector('#gmDelete').addEventListener('click', ()=>{ col.doc(id).delete().catch(()=>{}); closeGenericModal(); });
   backdrop.querySelector('#gmNoteText').addEventListener('blur', e=> patch({ text: e.target.value.trim() }));
+  autoGrowTextarea(backdrop.querySelector('#gmNoteText'));
   backdrop.querySelector('#gmNoteText').focus();
 }
 function openTaskModal(col, id, getter){
@@ -1701,6 +1718,7 @@ function openTaskModal(col, id, getter){
   });
   const titleEl = backdrop.querySelector('#mTitle');
   titleEl.addEventListener('blur', ()=> patch({ text: titleEl.value.trim() }));
+  autoGrowTextarea(titleEl);
   if(!v.text) titleEl.focus();
   const projEl = backdrop.querySelector('#mProj');
   projEl.addEventListener('blur', ()=>{
