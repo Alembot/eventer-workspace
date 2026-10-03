@@ -35,13 +35,16 @@
   color-scheme:dark;
 }
 *{box-sizing:border-box}
-body{background:var(--bg);color:var(--fg);font-family:var(--body);margin:0;padding:0;font-size:14px;line-height:1.45}
+body{background:var(--rail-bg);color:var(--fg);font-family:var(--body);margin:0;padding:0 0 18px;font-size:14px;line-height:1.45}
 h1,h2,h3{font-family:var(--display);font-weight:700;margin:0;letter-spacing:-.01em}
 .num{font-family:var(--mono);font-variant-numeric:tabular-nums}
 a{color:var(--accent)}
 button{font:inherit;cursor:pointer}
-.app{display:flex;min-height:100%}
-.rail{width:220px;flex:none;background:var(--rail-bg);color:var(--rail-fg);display:flex;flex-direction:column;padding:18px 0;min-height:100vh;position:sticky;top:0;align-self:flex-start}
+/* The whole app is framed as one rounded card against the darker page
+   backdrop, so scrolling to the very bottom ends in a finished rounded
+   corner instead of an abrupt square cutoff. */
+.app{display:flex;min-height:calc(100vh - 18px);border-radius:0 0 18px 18px;overflow:hidden;background:var(--bg)}
+.rail{width:220px;flex:none;background:var(--rail-bg);color:var(--rail-fg);display:flex;flex-direction:column;padding:18px 0 0;min-height:100vh;position:sticky;top:0;align-self:flex-start;border-radius:0 0 0 18px}
 .rail-brand{padding:0 18px 16px;border-bottom:1px solid #2a251d;margin-bottom:10px;border-radius:6px;transition:background .15s}
 .rail-brand:hover{background:var(--rail-active)}
 .rail-brand.active{background:var(--rail-active)}
@@ -53,6 +56,9 @@ button{font:inherit;cursor:pointer}
 .rail-item .n{font-family:var(--mono);font-size:10.5px;opacity:.7;width:16px}
 .rail-item:hover{background:#1b1712;color:var(--rail-fg)}
 .rail-item.active{background:var(--rail-active);color:#fff;border-left-color:var(--accent)}
+.mode-row:hover{background:var(--rail-active)}
+.mode-row.sel{background:color-mix(in srgb, var(--accent) 22%, transparent)}
+.mode-row.sel div:first-child{color:var(--accent)}
 .main{flex:1;min-width:0;padding:28px 36px 60px;max-width:1200px}
 .header{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:18px;flex-wrap:wrap}
 .header .eyebrow{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--fg-muted);margin-bottom:4px}
@@ -433,29 +439,80 @@ function renderRail(){
   if(brand) brand.classList.toggle('active', state.dir==='home');
   renderRailFooter();
 }
+// Title shown for the "test access" role of a direction in the mode switcher
+// — Academy keeps its real-world title (rector), everything else falls back
+// to the same "РМ <направление>" pattern used for the chat auto-responder.
+function directorTitle(slug){
+  if(slug==='academy') return 'Ректор Академии';
+  return roleTitle(slug);
+}
 function renderRailFooter(){
   let footer = document.getElementById('railFooter');
   const rail = document.querySelector('.rail');
   if(!footer){
     footer = document.createElement('div');
     footer.id = 'railFooter';
-    footer.style.cssText = 'margin-top:auto;padding:14px 16px;border-top:1px solid var(--border);font-size:12px;color:var(--fg-muted)';
+    footer.style.cssText = 'margin-top:auto';
     rail.appendChild(footer);
   }
   if(!currentProfile){ footer.innerHTML = ''; return; }
+
+  // "Режим работы": only the real admin can switch, and only while looking
+  // at an actual direction — matches K-Workspace's bottom-left card exactly.
+  const dirCtx = DIRECTIONS.find(d=>d.slug===(viewAsDirection||state.dir));
+  const modeHtml = (isRealAdmin() && dirCtx) ? `
+    <div style="padding:12px 16px;border-top:1px solid var(--border)">
+      <div style="font-size:10.5px;letter-spacing:.04em;color:var(--fg-muted);margin-bottom:8px">РЕЖИМ РАБОТЫ</div>
+      <div class="mode-row ${!viewAsDirection?'sel':''}" data-mode="admin" style="cursor:pointer;border-radius:8px;padding:7px 8px;margin:0 -8px 2px">
+        <div style="font-size:13px;font-weight:600">${(currentProfile.email||'Кайрат').split('@')[0]}</div>
+        <div style="font-size:11.5px;color:var(--fg-muted)">Администратор Workspace</div>
+      </div>
+      <div class="mode-row ${viewAsDirection===dirCtx.slug?'sel':''}" data-mode="${dirCtx.slug}" style="cursor:pointer;border-radius:8px;padding:7px 8px;margin:0 -8px">
+        <div style="font-size:13px;font-weight:600">${directorTitle(dirCtx.slug)}</div>
+        <div style="font-size:11.5px;color:var(--fg-muted)">Тестовый доступ руководителя</div>
+      </div>
+    </div>` : '';
+
+  const roleLine = viewAsDirection
+    ? 'Смотрите как: ' + directorTitle(viewAsDirection)
+    : (isRealAdmin() ? 'Администратор' : 'Сотрудник · ' + ((DIRECTIONS.find(d=>d.slug===currentProfile.direction)||{}).name||''));
+
   footer.innerHTML = `
-    <div style="margin-bottom:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${(currentProfile.email||'').replace(/</g,'&lt;')}</div>
-    <div style="margin-bottom:8px">${isAdmin() ? 'Администратор' : 'Сотрудник · ' + (DIRECTIONS.find(d=>d.slug===currentProfile.direction)||{}).name||''}</div>
-    <button class="btn ghost" id="railLogout" style="width:100%;padding:6px;font-size:12px">Выйти</button>`;
+    ${modeHtml}
+    <div style="padding:14px 16px;border-top:1px solid var(--border);font-size:12px;color:var(--fg-muted)">
+      <div style="margin-bottom:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${(currentProfile.email||'').replace(/</g,'&lt;')}</div>
+      <div style="margin-bottom:8px">${roleLine}</div>
+      <button class="btn ghost" id="railLogout" style="width:100%;padding:6px;font-size:12px">Выйти</button>
+    </div>`;
+
+  footer.querySelectorAll('.mode-row').forEach(row=>{
+    row.addEventListener('click', ()=>{
+      const mode = row.dataset.mode;
+      if(mode==='admin'){
+        if(!viewAsDirection) return;
+        viewAsDirection = null;
+        location.hash = '#home';
+      } else {
+        viewAsDirection = mode;
+        location.hash = '#'+mode+'/tasks';
+      }
+      render();
+    });
+  });
   const lo = document.getElementById('railLogout');
   if(lo) lo.addEventListener('click', ()=>{ if(sb) sb.auth.signOut(); });
 }
 
 const DIRS_WITH_FINANCE_AND_MESSAGES = ['academy','afisha'];
+const DIRS_WITH_MARKETING = ['academy'];
 function tabsForDir(slug){
   const base = [['tasks','Задачи'],['apps','Приложения'],['decisions','Решения'],['context','Контекст']];
-  if(DIRS_WITH_FINANCE_AND_MESSAGES.includes(slug)) return [base[0], ['finance','Финансы'], base[1], base[2], base[3], ['messages','Сообщения']];
-  return base;
+  const tabs = base.slice(0,1);
+  if(DIRS_WITH_FINANCE_AND_MESSAGES.includes(slug)) tabs.push(['finance','Финансы']);
+  if(DIRS_WITH_MARKETING.includes(slug)) tabs.push(['marketing','Маркетинг и продажи']);
+  tabs.push(base[1], base[2], base[3]);
+  if(DIRS_WITH_FINANCE_AND_MESSAGES.includes(slug)) tabs.push(['messages','Сообщения']);
+  return tabs;
 }
 
 // ---------- Home (all directions at once): today/tomorrow tasks, aggregate
@@ -821,6 +878,10 @@ function render(){
   if(!tabs.find(t=>t[0]===state.tab)) state.tab = tabs[0][0];
   const main = document.getElementById('main');
   main.innerHTML = `
+    ${viewAsDirection ? `<div class="banner" style="margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;gap:10px">
+      <span>👁 Предпросмотр: вы смотрите Workspace как «${directorTitle(viewAsDirection)}» — не как администратор.</span>
+      <button class="btn ghost" id="exitPreview" style="flex:none;padding:5px 12px;font-size:12px">Вернуться к администратору</button>
+    </div>` : ''}
     <div class="header">
       <div>
         <div class="eyebrow">${dir.n} · направление</div>
@@ -833,9 +894,12 @@ function render(){
   main.querySelectorAll('.tab').forEach(el=>{
     el.addEventListener('click', ()=>{ location.hash = '#'+dir.slug+'/'+el.dataset.tab; });
   });
+  const exitBtn = document.getElementById('exitPreview');
+  if(exitBtn) exitBtn.addEventListener('click', ()=>{ viewAsDirection = null; location.hash = '#home'; render(); });
   clearUnsubs();
   const panel = document.getElementById('panel');
   if(state.tab==='finance' && DIRS_WITH_FINANCE_AND_MESSAGES.includes(dir.slug)) renderFinance(panel, dir.slug);
+  else if(state.tab==='marketing' && DIRS_WITH_MARKETING.includes(dir.slug)) renderMarketing(panel, dir.slug);
   else if(state.tab==='messages') renderMessages(panel, dir.slug);
   else if(state.tab==='apps') renderApps(panel, dir.slug);
   else if(state.tab==='tasks') renderTasks(panel, dir.slug);
@@ -1881,6 +1945,137 @@ async function loadFinance(panel, refresh){
   }
 }
 
+// ---------- Маркетинг и продажи (per-direction KPI/воронка, честно редактируемые поля) ----------
+const MARKETING_METRICS = [
+  ['contacts','Контакты','int'],
+  ['leads','Лиды','int'],
+  ['students','Студенты','int'],
+  ['adSpend','Расходы на рекламу','money'],
+  ['impressions','Показы','int'],
+  ['clicks','Переходы на сайт','int'],
+  ['anonVisitors','Посетители без контакта','int'],
+  ['cpc','CPC','money'],
+  ['cpl','CPL','money'],
+  ['revenue','Выручка','money'],
+  ['cac','CAC','money'],
+];
+const MARKETING_FUNNEL = [
+  ['visitor','Посетитель'],
+  ['contact','Контакт'],
+  ['lead','Лид'],
+  ['payment','Выбор оплаты'],
+  ['student','Студент'],
+];
+function mktFmt(v, unit){
+  if(v==null || v==='' || isNaN(v)) return '—';
+  return unit==='money' ? fmtMoney(Number(v)) : fmtInt(Number(v));
+}
+function mktDeviation(fact, plan){
+  if(fact==null || plan==null || plan===0 || isNaN(Number(fact)) || isNaN(Number(plan))) return null;
+  return ((Number(fact)-Number(plan))/Math.abs(Number(plan)))*100;
+}
+function mktDevSpan(fact, plan){
+  const dev = mktDeviation(fact, plan);
+  if(dev==null) return '';
+  const color = dev>=0 ? 'var(--good)' : 'var(--bad)';
+  return `<span style="color:${color}">${dev>=0?'+':''}${dev.toFixed(0)}%</span>`;
+}
+function renderMarketing(panel, dirSlug){
+  panel.innerHTML = `<div class="empty">Загружаю показатели маркетинга…</div>`;
+  const col = db.collection('marketing');
+  const unsub = col.where('direction','==',dirSlug).onSnapshot(snap=>{
+    const docSnap = snap.docs[0];
+    const v = docSnap ? docSnap.data() : {};
+    drawMarketing(panel, dirSlug, v);
+  });
+  unsubs['marketing'] = unsub;
+}
+function drawMarketing(panel, dirSlug, v){
+  const metrics = v.metrics || {};
+  const funnel = v.funnel || {};
+  panel.innerHTML = `
+    <div class="row" style="justify-content:space-between;align-items:flex-start;margin-bottom:14px;gap:12px">
+      <div class="banner" style="flex:1">Показатели вносятся вручную — прямой интеграции с CRM Академии пока нет. Как только она появится, эти карточки будут обновляться из неё автоматически.</div>
+      <button class="btn" id="mktEdit" style="flex:none">✎ Редактировать показатели</button>
+    </div>
+    <div class="grid" style="margin-bottom:18px">
+      ${MARKETING_METRICS.map(([key,label,unit])=>{
+        const m = metrics[key] || {};
+        return `<div class="kpi">
+          <div class="label">${label}</div>
+          <div class="value num">${mktFmt(m.fact, unit)}</div>
+          <div class="sub">план ${mktFmt(m.plan, unit)} ${mktDevSpan(m.fact, m.plan)}</div>
+        </div>`;
+      }).join('')}
+    </div>
+    <div class="card">
+      <h3 style="margin-bottom:10px;font-size:14px">Воронка продаж</h3>
+      ${MARKETING_FUNNEL.map(([key,label])=>{
+        const f = funnel[key] || {};
+        return `<div class="exp-row"><span>${label}</span><span class="num">${mktFmt(f.fact,'int')} <span style="color:var(--fg-muted)">из плана ${mktFmt(f.plan,'int')}</span> ${mktDevSpan(f.fact, f.plan)}</span></div>`;
+      }).join('')}
+    </div>
+  `;
+  panel.querySelector('#mktEdit').addEventListener('click', ()=> openMarketingModal(dirSlug, { metrics, funnel }));
+}
+function openMarketingModal(dirSlug, cur){
+  closeGenericModal(); closeTaskModal();
+  const backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop';
+  backdrop.id = 'genericModalBackdrop';
+  backdrop.innerHTML = `
+    <div class="modal-card" style="max-width:680px">
+      <div class="modal-head">
+        <div style="flex:1;font-weight:600;font-size:15px">Показатели маркетинга</div>
+        <button class="modal-close" id="mktClose">×</button>
+      </div>
+      <div class="modal-row" style="flex-wrap:wrap">
+        ${MARKETING_METRICS.map(([key,label])=>{
+          const m = cur.metrics[key] || {};
+          return `<div class="modal-field" style="flex:1;min-width:150px">
+            <div class="modal-label">${label}</div>
+            <input type="number" step="any" id="mk_${key}_fact" value="${m.fact??''}" placeholder="факт"/>
+            <input type="number" step="any" id="mk_${key}_plan" value="${m.plan??''}" placeholder="план" style="margin-top:6px"/>
+          </div>`;
+        }).join('')}
+      </div>
+      <div class="modal-field"><div class="modal-label">Воронка (факт / план)</div></div>
+      <div class="modal-row" style="flex-wrap:wrap">
+        ${MARKETING_FUNNEL.map(([key,label])=>{
+          const f = cur.funnel[key] || {};
+          return `<div class="modal-field" style="flex:1;min-width:150px">
+            <div class="modal-label">${label}</div>
+            <input type="number" step="any" id="mf_${key}_fact" value="${f.fact??''}" placeholder="факт"/>
+            <input type="number" step="any" id="mf_${key}_plan" value="${f.plan??''}" placeholder="план" style="margin-top:6px"/>
+          </div>`;
+        }).join('')}
+      </div>
+      <div class="modal-footer">
+        <span></span>
+        <button class="btn" id="mktSave">Сохранить</button>
+      </div>
+    </div>`;
+  document.body.appendChild(backdrop);
+  backdrop.addEventListener('click', e=>{ if(e.target===backdrop) closeGenericModal(); });
+  backdrop.querySelector('#mktClose').addEventListener('click', closeGenericModal);
+  backdrop.querySelector('#mktSave').addEventListener('click', ()=>{
+    const metrics = {};
+    MARKETING_METRICS.forEach(([key])=>{
+      const fact = backdrop.querySelector(`#mk_${key}_fact`).value;
+      const plan = backdrop.querySelector(`#mk_${key}_plan`).value;
+      metrics[key] = { fact: fact===''?null:Number(fact), plan: plan===''?null:Number(plan) };
+    });
+    const funnel = {};
+    MARKETING_FUNNEL.forEach(([key])=>{
+      const fact = backdrop.querySelector(`#mf_${key}_fact`).value;
+      const plan = backdrop.querySelector(`#mf_${key}_plan`).value;
+      funnel[key] = { fact: fact===''?null:Number(fact), plan: plan===''?null:Number(plan) };
+    });
+    db.collection('marketing').doc(dirSlug).set({ direction: dirSlug, metrics, funnel, updatedAt: Date.now() }).catch(()=>{});
+    closeGenericModal();
+  });
+}
+
 // ---------- Приложения (per-direction, db-backed list of app/tool links) ----------
 function renderApps(panel, dirSlug){
   panel.innerHTML = `
@@ -2142,8 +2337,17 @@ function showAuth(msg, kind){
 // direction, read-only on Решения/Контекст — enforced both here in the UI
 // and, as the real security boundary, by the Supabase RLS policies). ----------
 let currentProfile = null; // { id, email, role: 'admin'|'employee', direction }
-function isAdmin(){ return !currentProfile || currentProfile.role === 'admin'; }
-function employeeDirection(){ return (!isAdmin() && currentProfile) ? currentProfile.direction : null; }
+// "Войти как" — admin-only preview: pretend to be an employee scoped to this
+// direction. The real Supabase session underneath is still full-admin (so
+// nothing breaks if the preview is dropped), only the UI restricts itself —
+// this is how the admin decides, by trying it, what an employee should see.
+let viewAsDirection = null;
+function isRealAdmin(){ return !!(currentProfile && currentProfile.role === 'admin'); }
+function isAdmin(){ return isRealAdmin() && !viewAsDirection; }
+function employeeDirection(){
+  if(viewAsDirection) return viewAsDirection;
+  return (!isRealAdmin() && currentProfile) ? currentProfile.direction : null;
+}
 async function loadProfile(){
   if(!sb) { currentProfile = null; return; }
   const { data: sess } = await sb.auth.getSession();
