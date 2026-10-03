@@ -1,5 +1,7 @@
 <!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Eventer Workspace</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#171410">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Eventer">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
@@ -547,11 +549,14 @@ function renderRailFooter(){
         ${isRealAdmin() ? `<span style="font-size:11px;transform:${modeListOpen?'rotate(180deg)':'none'}">▾</span>` : ''}
       </div>
       ${isAdmin() ? `<div id="railTeamLink" style="cursor:pointer;color:var(--rail-fg-dim);margin-bottom:8px" onmouseover="this.style.color='var(--rail-fg)'" onmouseout="this.style.color='var(--rail-fg-dim)'">👥 Управление сотрудниками</div>` : ''}
+      <button id="railPush" style="width:100%;margin-bottom:8px;padding:6px;font-size:12px;background:none;border:1px solid var(--rail-fg-dim);color:var(--rail-fg);border-radius:7px;cursor:pointer">${pushSubscribed ? '🔕 Выключить уведомления' : '🔔 Включить уведомления'}</button>
       <button id="railLogout" style="width:100%;padding:6px;font-size:12px;background:none;border:1px solid var(--rail-fg-dim);color:var(--rail-fg);border-radius:7px;cursor:pointer">Выйти</button>
     </div>`;
 
   const teamLink = document.getElementById('railTeamLink');
   if(teamLink) teamLink.addEventListener('click', ()=>{ location.hash = '#team'; });
+  const pushBtn = document.getElementById('railPush');
+  if(pushBtn) pushBtn.addEventListener('click', ()=>{ pushSubscribed ? disablePush() : enablePush(); });
   const activeRow = document.getElementById('modeActiveRow');
   if(activeRow) activeRow.addEventListener('click', ()=>{ modeListOpen = !modeListOpen; renderRailFooter(); });
   const modeList = document.getElementById('modeList');
@@ -2397,6 +2402,7 @@ function showApp(){
   document.getElementById('authScreen').style.display = 'none';
   document.getElementById('appRoot').style.display = '';
   initMobileNav();
+  initPush().then(render).catch(()=>{});
 }
 let mobileNavInited = false;
 function closeSheets(){
@@ -2462,7 +2468,8 @@ function renderMobileNav(){
       </div>`).join('');
   }
   const teamHtml = isAdmin() ? `<div class="sheet-row" id="mnTeam" style="margin-top:8px"><div class="t">👥 Управление сотрудниками</div></div>` : '';
-  modeBody.innerHTML = idHtml + listHtml + teamHtml + `<button id="mnLogout" style="width:100%;margin-top:14px;padding:10px;font-size:13px;background:none;border:1px solid var(--rail-fg-dim);color:var(--rail-fg);border-radius:8px;cursor:pointer">Выйти</button>`;
+  const pushHtml = `<button id="mnPush" style="width:100%;margin-top:14px;padding:10px;font-size:13px;background:none;border:1px solid var(--rail-fg-dim);color:var(--rail-fg);border-radius:8px;cursor:pointer">${pushSubscribed ? '🔕 Выключить уведомления' : '🔔 Включить уведомления'}</button>`;
+  modeBody.innerHTML = idHtml + listHtml + teamHtml + pushHtml + `<button id="mnLogout" style="width:100%;margin-top:8px;padding:10px;font-size:13px;background:none;border:1px solid var(--rail-fg-dim);color:var(--rail-fg);border-radius:8px;cursor:pointer">Выйти</button>`;
   modeBody.querySelectorAll('.sheet-row[data-mode]').forEach(row=>{
     row.addEventListener('click', ()=>{
       const mode = row.dataset.mode;
@@ -2475,6 +2482,8 @@ function renderMobileNav(){
   });
   const mnTeam = document.getElementById('mnTeam');
   if(mnTeam) mnTeam.addEventListener('click', ()=>{ closeSheets(); location.hash = '#team'; });
+  const mnPush = document.getElementById('mnPush');
+  if(mnPush) mnPush.addEventListener('click', ()=>{ closeSheets(); pushSubscribed ? disablePush() : enablePush(); });
   const mnLogout = document.getElementById('mnLogout');
   if(mnLogout) mnLogout.addEventListener('click', ()=>{ closeSheets(); if(sb) sb.auth.signOut(); });
 }
@@ -2515,6 +2524,71 @@ async function loadProfile(){
   const { data, error } = await sb.from('profiles').select('*').eq('id', uid).maybeSingle();
   if(error){ console.error('profile load failed', error); currentProfile = null; return; }
   currentProfile = data || null;
+}
+
+// ---------- Web Push notifications (new messages, meeting reminders, task
+// digests) — service worker registered once, subscription stored per device
+// in Supabase so the server (Edge Functions) can push to it. ----------
+const VAPID_PUBLIC_KEY = 'BHoObAhcVwEAJjsUStAC38TFYItEOdPuYYCRbnPiw_iRIOyBa-Bg65nGp0H62LDMb2x6aw2X0nEq7T1x0vlbgqs';
+function urlBase64ToUint8Array(base64String){
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g,'+').replace(/_/g,'/');
+  const raw = atob(base64);
+  const arr = new Uint8Array(raw.length);
+  for(let i=0;i<raw.length;i++) arr[i] = raw.charCodeAt(i);
+  return arr;
+}
+let swReg = null;
+let pushSubscribed = false;
+async function initPush(){
+  if(!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+  try{
+    swReg = await navigator.serviceWorker.register('sw.js');
+    const sub = await swReg.pushManager.getSubscription();
+    pushSubscribed = !!sub;
+  }catch(e){ console.error('sw register failed', e); }
+}
+async function enablePush(){
+  if(!swReg) await initPush();
+  if(!swReg){ alert('Уведомления не поддерживаются в этом браузере.'); return; }
+  if(Notification.permission === 'denied'){
+    alert('Уведомления заблокированы для этого сайта в настройках браузера — разреши их вручную и попробуй снова.');
+    return;
+  }
+  const perm = await Notification.requestPermission();
+  if(perm !== 'granted') return;
+  try{
+    const sub = await swReg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+    });
+    const { data: sess } = await sb.auth.getSession();
+    const uid = sess && sess.session && sess.session.user && sess.session.user.id;
+    if(!uid) return;
+    const j = sub.toJSON();
+    const { error } = await sb.from('push_subscriptions').upsert({
+      user_id: uid,
+      endpoint: j.endpoint,
+      p256dh: j.keys.p256dh,
+      auth: j.keys.auth,
+      direction: currentProfile ? currentProfile.direction : null,
+    }, { onConflict: 'endpoint' });
+    if(error) throw error;
+    pushSubscribed = true;
+  }catch(e){ console.error('push subscribe failed', e); alert('Не получилось включить уведомления: ' + (e && e.message || e)); }
+  render();
+}
+async function disablePush(){
+  if(!swReg){ pushSubscribed = false; render(); return; }
+  try{
+    const sub = await swReg.pushManager.getSubscription();
+    if(sub){
+      if(sb) await sb.from('push_subscriptions').delete().eq('endpoint', sub.endpoint);
+      await sub.unsubscribe();
+    }
+  }catch(e){ console.error('push unsubscribe failed', e); }
+  pushSubscribed = false;
+  render();
 }
 
 async function startAppWithCloud(){
