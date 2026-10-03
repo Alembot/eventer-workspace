@@ -1322,16 +1322,18 @@ function renderRecordList(panel, kind, dirSlug){
 
   function draw(){
     if(!docsCache.length){ listEl.innerHTML = `<div class="empty">${L.empty}</div>`; return; }
+    // Numbering is chronological (oldest = №1), so the list is rendered in the
+    // same ascending order — otherwise higher numbers appear above lower ones.
     const ascOrder = docsCache.slice().sort((a,b)=> (a.v.ts||0)-(b.v.ts||0));
     const numById = {};
     ascOrder.forEach((d,i)=>{ numById[d.id] = i+1; });
-    listEl.innerHTML = docsCache.map(({id,v})=>{
+    listEl.innerHTML = ascOrder.map(({id,v})=>{
       const { tag, title, body } = splitRecordText(v.text);
       const expanded = openSet.has(id);
       const armed = deleteArmed.has(id);
       const n = numById[id];
       const dateStr = new Date(v.ts||Date.now()).toLocaleDateString('ru-RU');
-      const noLabel = kind==='decisions' ? `Решение №${n}` : `Контекст №${n} от ${dateStr}`;
+      const noLabel = kind==='decisions' ? `Решение №${n} от ${dateStr}` : `Контекст №${n} от ${dateStr}`;
       return `<div class="item record-item" data-id="${id}">
         <div class="record-head" data-id="${id}" style="display:flex;align-items:center;gap:8px;cursor:${body?'pointer':'default'}">
           ${body?`<button class="task-exp" data-id="${id}">${expanded?'▾':'▸'}</button>`:'<span class="task-exp" style="visibility:hidden">▸</span>'}
