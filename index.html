@@ -236,7 +236,7 @@ textarea{resize:vertical;min-height:54px}
 }
 </style>
 
-<div class="app">
+<div class="app" id="appRoot" style="display:none">
   <nav class="rail">
     <div class="rail-brand" id="railBrand" style="cursor:pointer" title="Главная">
       <div class="name">Eventer Workspace</div>
@@ -246,6 +246,19 @@ textarea{resize:vertical;min-height:54px}
   <main class="main" id="main"></main>
 </div>
 
+<div id="authScreen" style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:var(--bg);z-index:1000;padding:16px">
+  <div style="width:100%;max-width:340px;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:24px;box-shadow:0 10px 30px rgba(0,0,0,.08)">
+    <div style="font-family:var(--display);font-size:18px;font-weight:600;margin-bottom:4px">Eventer Workspace</div>
+    <div style="font-size:12.5px;color:var(--fg-muted);margin-bottom:18px">Вход для синхронизации данных между устройствами</div>
+    <div id="authMsg" style="display:none;font-size:12.5px;padding:8px 10px;border-radius:8px;margin-bottom:12px"></div>
+    <input id="authEmail" type="email" placeholder="Почта" autocomplete="username" style="width:100%;padding:10px 12px;margin-bottom:8px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:var(--bg);color:var(--fg)"/>
+    <input id="authPass" type="password" placeholder="Пароль" autocomplete="current-password" style="width:100%;padding:10px 12px;margin-bottom:14px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:var(--bg);color:var(--fg)"/>
+    <button id="authSignIn" class="btn" style="width:100%;margin-bottom:8px;padding:10px;border-radius:8px;border:none;background:var(--accent);color:var(--accent-fg);font-size:14px;cursor:pointer">Войти</button>
+    <button id="authSignUp" style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--fg);font-size:13px;cursor:pointer">Первый вход — создать пароль</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script>
 const DIRECTIONS = [
   {slug:'academy', n:'01', name:'Академия'},
@@ -1628,18 +1641,211 @@ function applyAppFixes(){
       {id:'afisha_db', direction:'afisha', name:'Afisha Data Base', url:'https://claude.ai/artifact/3K2JSM8fxDYmQKHQDewCBk'}
     ];
     let changed = false;
+    const toPush = [];
     fixes.forEach(fix=>{
       const idx = apps.findIndex(a=>a.id===fix.id);
       if(idx === -1){
-        apps.push({id:fix.id, direction:fix.direction, name:fix.name, url:fix.url, ts:0});
-        changed = true;
+        const row = {id:fix.id, direction:fix.direction, name:fix.name, url:fix.url, ts:0};
+        apps.push(row); toPush.push(row); changed = true;
       } else if(apps[idx].url !== fix.url || apps[idx].name !== fix.name){
         apps[idx] = Object.assign({}, apps[idx], {url:fix.url, name:fix.name});
-        changed = true;
+        toPush.push(apps[idx]); changed = true;
       }
     });
     if(changed) localStorage.setItem(key, JSON.stringify(apps));
+    if(sb) toPush.forEach(row=>cloudUpsertRow('apps', row));
   }catch(e){ console.error('app fix failed', e); }
+}
+
+// ---------- Supabase sync layer ----------
+// Cloud is the source of truth once logged in. Local storage keeps acting as
+// the in-memory/offline cache that the existing collection()/onSnapshot
+// machinery (makeQuery, lsRead/lsWrite/notifyColl) already reads from — we
+// just write-through every mutation to Supabase in addition to the cache,
+// and a realtime subscription pulls in changes made from other devices.
+const SUPABASE_URL = 'https://emtgtxsxzwyqvgfaifbx.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVtdGd0eHN4end5cXZnZmFpZmJ4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA5OTM3NDEsImV4cCI6MjEwNjU2OTc0MX0.SLUZ3jSIdbP1dgsqmfzdEsWXZyQ8penAAWyeWSM9yHI';
+let sb = null;
+let realtimeChannel = null;
+try{
+  if(window.supabase && window.supabase.createClient){
+    sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  }
+}catch(e){ console.error('supabase init failed', e); }
+
+function flatFromRow(row){ return Object.assign({ id: row.id }, row.data||{}); }
+
+async function syncAllFromCloud(){
+  if(!sb) return false;
+  const { data, error } = await sb.from('rows').select('*');
+  if(error){ console.error('cloud fetch failed', error); return false; }
+  const byColl = {};
+  data.forEach(row=>{
+    byColl[row.collection] = byColl[row.collection] || [];
+    byColl[row.collection].push(flatFromRow(row));
+  });
+  // Mirror every known collection (including ones now empty in the cloud)
+  // into the local cache so the UI's onSnapshot reads reflect cloud truth.
+  const allColls = new Set([...Object.keys(SEED_DATA), ...Object.keys(byColl)]);
+  allColls.forEach(coll=>{ lsWrite(coll, byColl[coll]||[]); });
+  return true;
+}
+
+async function migrateLocalToCloudIfEmpty(){
+  if(!sb) return;
+  const { count, error } = await sb.from('rows').select('*', { count:'exact', head:true });
+  if(error || (count && count>0)) return; // already has cloud data, don't touch it
+  const payload = [];
+  Object.keys(SEED_DATA).forEach(coll=>{
+    const localRows = lsRead(coll);
+    localRows.forEach(r=>{
+      const { id, ...rest } = r;
+      payload.push({ collection: coll, id, direction: rest.direction||null, ts: rest.ts||null, data: rest });
+    });
+  });
+  if(!payload.length) return;
+  // insert in chunks to stay well under request size limits
+  for(let i=0;i<payload.length;i+=500){
+    const chunk = payload.slice(i, i+500);
+    const { error: insErr } = await sb.from('rows').insert(chunk);
+    if(insErr){ console.error('migration chunk failed', insErr); }
+  }
+}
+
+function subscribeRealtime(){
+  if(!sb || realtimeChannel) return;
+  realtimeChannel = sb.channel('rows-changes')
+    .on('postgres_changes', { event:'*', schema:'public', table:'rows' }, payload=>{
+      const coll = (payload.new && payload.new.collection) || (payload.old && payload.old.collection);
+      if(!coll) return;
+      const rows = lsRead(coll);
+      if(payload.eventType === 'DELETE'){
+        lsWrite(coll, rows.filter(r=>r.id !== payload.old.id));
+      } else {
+        const flat = flatFromRow(payload.new);
+        const i = rows.findIndex(r=>r.id===flat.id);
+        if(i<0) rows.push(flat); else rows[i]=flat;
+        lsWrite(coll, rows);
+      }
+    })
+    .subscribe();
+}
+
+const supaShim = {
+  collection(coll){
+    return Object.assign(makeQuery(coll, [], null, null), {
+      add(obj){
+        return new Promise(async (res,rej)=>{
+          const id = uid();
+          const rows = lsRead(coll); rows.push({ id, ...obj }); lsWrite(coll, rows); // optimistic
+          if(sb){
+            const { error } = await sb.from('rows').insert({ collection:coll, id, direction: obj.direction||null, ts: obj.ts||null, data: obj });
+            if(error){ console.error('add failed', error); return rej(error); }
+          }
+          res({ id });
+        });
+      },
+      doc(id){
+        return {
+          update(patch){
+            return new Promise(async (res,rej)=>{
+              const rows = lsRead(coll); const i = rows.findIndex(r=>r.id===id);
+              if(i<0) return rej(new Error('not-found'));
+              rows[i] = {...rows[i], ...patch}; lsWrite(coll, rows); // optimistic
+              if(sb){
+                const { id:_drop, ...data } = rows[i];
+                const { error } = await sb.from('rows').update({ direction:data.direction||null, ts:data.ts||null, data }).eq('collection',coll).eq('id',id);
+                if(error){ console.error('update failed', error); return rej(error); }
+              }
+              res();
+            });
+          },
+          set(obj){
+            return new Promise(async (res,rej)=>{
+              const rows = lsRead(coll); const i = rows.findIndex(r=>r.id===id);
+              if(i<0) rows.push({ id, ...obj }); else rows[i] = { id, ...obj };
+              lsWrite(coll, rows); // optimistic
+              if(sb){
+                const { error } = await sb.from('rows').upsert({ collection:coll, id, direction: obj.direction||null, ts: obj.ts||null, data: obj }, { onConflict:'collection,id' });
+                if(error){ console.error('set failed', error); return rej(error); }
+              }
+              res();
+            });
+          },
+          delete(){
+            return new Promise(async (res,rej)=>{
+              lsWrite(coll, lsRead(coll).filter(r=>r.id!==id)); // optimistic
+              if(sb){
+                const { error } = await sb.from('rows').delete().eq('collection',coll).eq('id',id);
+                if(error){ console.error('delete failed', error); return rej(error); }
+              }
+              res();
+            });
+          }
+        };
+      }
+    });
+  }
+};
+
+async function cloudUpsertRow(coll, flatRow){
+  if(!sb) return;
+  try{
+    const { id, ...data } = flatRow;
+    await sb.from('rows').upsert({ collection:coll, id, direction: data.direction||null, ts: data.ts||null, data }, { onConflict:'collection,id' });
+  }catch(e){ console.error('cloud upsert failed', coll, e); }
+}
+
+function showApp(){
+  document.getElementById('authScreen').style.display = 'none';
+  document.getElementById('appRoot').style.display = '';
+}
+function showAuth(msg, kind){
+  document.getElementById('appRoot').style.display = 'none';
+  document.getElementById('authScreen').style.display = 'flex';
+  const m = document.getElementById('authMsg');
+  if(msg){
+    m.textContent = msg; m.style.display = 'block';
+    m.style.background = kind==='error' ? 'color-mix(in srgb, var(--bad) 15%, transparent)' : 'color-mix(in srgb, var(--good) 15%, transparent)';
+    m.style.color = kind==='error' ? 'var(--bad)' : 'var(--good)';
+  } else { m.style.display = 'none'; }
+}
+
+async function startAppWithCloud(){
+  db = supaShim;
+  await migrateLocalToCloudIfEmpty();
+  await syncAllFromCloud();
+  subscribeRealtime();
+  applyAppFixes();
+  applySystemDecisions();
+  showApp();
+  parseRoute();
+  render();
+}
+
+function wireAuthScreen(){
+  const emailI = document.getElementById('authEmail');
+  const passI = document.getElementById('authPass');
+  document.getElementById('authSignIn').addEventListener('click', async ()=>{
+    if(!sb) return showAuth('Supabase недоступен в этом окне.', 'error');
+    const email = emailI.value.trim(), password = passI.value;
+    if(!email || !password) return showAuth('Введи почту и пароль.', 'error');
+    showAuth('Входим…');
+    const { error } = await sb.auth.signInWithPassword({ email, password });
+    if(error) return showAuth(error.message==='Invalid login credentials' ? 'Неверная почта или пароль.' : error.message, 'error');
+    await startAppWithCloud();
+  });
+  document.getElementById('authSignUp').addEventListener('click', async ()=>{
+    if(!sb) return showAuth('Supabase недоступен в этом окне.', 'error');
+    const email = emailI.value.trim(), password = passI.value;
+    if(!email || !password) return showAuth('Введи почту и придумай пароль.', 'error');
+    if(password.length < 6) return showAuth('Пароль должен быть не короче 6 символов.', 'error');
+    showAuth('Создаём доступ…');
+    const { data, error } = await sb.auth.signUp({ email, password });
+    if(error) return showAuth(error.message, 'error');
+    if(data.session){ await startAppWithCloud(); return; }
+    showAuth('Письмо отправлено на ' + email + ' — открой его и перейди по ссылке, затем вернись сюда и нажми «Войти».');
+  });
 }
 
 function applySystemDecisions(){
@@ -1657,26 +1863,57 @@ function applySystemDecisions(){
         'Обоснование: iOS Universal Links делали K-Workspace неудобным как приложение на главном экране телефона; переход на собственный Eventer Workspace убирает эту проблему и закрепляет единственный актуальный источник данных для всех менеджеров и направлений.'}
     ];
     let changed = false;
+    const toPush = [];
     adds.forEach(dec=>{
       if(!decisions.find(d=>d.id===dec.id)){
-        decisions.push(Object.assign({done:false, ts:Date.now()}, dec));
-        changed = true;
+        const row = Object.assign({done:false, ts:Date.now()}, dec);
+        decisions.push(row); toPush.push(row); changed = true;
       }
     });
     if(changed) localStorage.setItem(key, JSON.stringify(decisions));
+    if(sb) toPush.forEach(row=>cloudUpsertRow('decisions', row));
   }catch(e){ console.error('system decision seed failed', e); }
 }
 
 async function boot(){
-  // Standalone build: data lives in this browser's localStorage (per device,
-  // no account/login, no cross-device sync). Finance tab's "live from Google
-  // Sheets" refresh is a Claude-only feature and is not available here.
-  db = dbShim;
+  // Local cache is seeded/patched first either way, so there's baseline
+  // content to show immediately and to migrate up on first cloud login.
   seedIfEmpty();
   applyAppFixes();
   applySystemDecisions();
-  parseRoute();
-  render();
+  wireAuthScreen();
+
+  if(!sb){
+    // Supabase unreachable in this window (blocked script, offline, etc.):
+    // fall back to the old local-only mode rather than blocking on a login
+    // screen that can never succeed.
+    db = dbShim;
+    showApp();
+    parseRoute();
+    render();
+    return;
+  }
+
+  let session = null;
+  try{
+    const { data } = await sb.auth.getSession();
+    session = data && data.session;
+  }catch(e){ console.error('getSession failed', e); }
+
+  if(session){
+    await startAppWithCloud();
+  } else {
+    showAuth();
+  }
+
+  // Pick up magic-link/email-confirmation redirects and cross-tab session changes.
+  sb.auth.onAuthStateChange((event, sess)=>{
+    if(event === 'SIGNED_IN' && sess && db !== supaShim){
+      startAppWithCloud();
+    } else if(event === 'SIGNED_OUT'){
+      location.reload();
+    }
+  });
 }
 if(!location.hash) location.hash = '#academy/finance';
 boot();
