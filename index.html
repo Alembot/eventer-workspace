@@ -210,15 +210,38 @@ textarea{resize:vertical;min-height:54px}
 .app-card .del:hover{color:var(--bad)}
 .app-add{display:grid;grid-template-columns:1fr 1fr auto;gap:8px}
 @media (max-width:760px){.app-add{grid-template-columns:1fr}}
+
+/* Mobile bottom navigation + sheets — replaces the old horizontal rail-as-
+   tabs-at-top layout (awkward to scroll with a thumb). Direction switching
+   and the admin "режим работы" switcher both move into thumb-reach sheets
+   that slide up from the bottom, opened from a fixed nav bar. */
+#mobileNav{display:none;position:fixed;left:0;right:0;bottom:0;z-index:40;background:rgba(23,20,16,.94);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-top:1px solid var(--rail-active);padding:6px 8px calc(6px + env(safe-area-inset-bottom,0px))}
+#mobileNav .nv-row{display:flex;align-items:stretch;gap:2px}
+#mobileNav button{flex:1;background:none;border:none;display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 4px;color:var(--rail-fg-dim);cursor:pointer;font:inherit;border-radius:10px}
+#mobileNav button.active{color:var(--rail-fg)}
+#mobileNav .nv-label{font-size:10.5px;max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sheet-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:49;display:flex;align-items:flex-end}
+.sheet-backdrop[hidden]{display:none}
+.bottom-sheet{width:100%;max-height:72vh;background:var(--rail-bg);border-radius:20px 20px 0 0;display:flex;flex-direction:column;box-shadow:0 -10px 30px rgba(0,0,0,.35)}
+.bottom-sheet .handle{width:36px;height:4px;border-radius:3px;background:var(--rail-active);margin:10px auto 2px;flex:none}
+.bottom-sheet .sheet-head{padding:10px 20px 14px;font-size:13px;font-weight:600;letter-spacing:.04em;color:var(--rail-fg);border-bottom:1px solid var(--rail-active);flex:none}
+.bottom-sheet .sheet-body{overflow-y:auto;padding:12px 16px calc(20px + env(safe-area-inset-bottom,0px))}
+.sheet-chip{border-radius:10px;padding:10px 12px;cursor:pointer}
+.sheet-chip.sel{background:var(--rail-active);border:1px solid var(--accent)}
+.sheet-chip .n{font-size:10.5px;color:var(--rail-fg-dim);font-weight:600}
+.sheet-chip.sel .n{color:var(--accent)}
+.sheet-chip .name{font-size:13px;color:var(--rail-fg);margin-top:2px}
+.sheet-row{border-radius:10px;padding:9px 10px;cursor:pointer}
+.sheet-row.sel{background:var(--rail-active)}
+.sheet-row .t{font-size:13px;font-weight:600;color:var(--rail-fg)}
+.sheet-row .s{font-size:11.5px;color:var(--rail-fg-dim);margin-top:1px}
+
 @media (max-width:760px){
-  .app{flex-direction:column}
-  .rail{width:100%;position:static;flex-direction:row;overflow-x:auto;padding:10px 0;min-height:0;height:auto;align-items:center}
-  .rail-brand{display:flex;align-items:center;flex:none;padding:0 12px;border-bottom:none;border-right:1px solid #2a251d;margin-bottom:0;margin-right:4px;align-self:stretch}
-  .rail-brand .name{font-size:13px;white-space:nowrap}
-  .rail-list{display:flex}
-  .rail-item{white-space:nowrap;border-left:none;border-bottom:3px solid transparent}
-  .rail-item.active{border-left:none;border-bottom-color:var(--accent)}
-  .main{padding:14px 12px 32px}
+  .rail{display:none}
+  body{padding:0}
+  .app{border-radius:0;min-height:100vh}
+  #mobileNav{display:block}
+  .main{padding:14px 12px 86px}
   html,body{overflow-x:hidden}
   .app{overflow-x:hidden}
   .task{margin-bottom:5px}
@@ -251,6 +274,39 @@ textarea{resize:vertical;min-height:54px}
     <ul class="rail-list" id="railList"></ul>
   </nav>
   <main class="main" id="main"></main>
+</div>
+
+<div id="mobileNav">
+  <div class="nv-row">
+    <button id="mnHome" data-nv="home">
+      <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v9a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1v-9"/></svg>
+      <span class="nv-label">Главная</span>
+    </button>
+    <button id="mnDir" data-nv="dir">
+      <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M3 7l2-3h5l2 3"/></svg>
+      <span class="nv-label" id="mnDirLabel">Направление</span>
+    </button>
+    <button id="mnMode" data-nv="mode">
+      <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="8" r="3.5"/><path d="M5 20c0-3.6 3.1-6.5 7-6.5s7 2.9 7 6.5"/></svg>
+      <span class="nv-label" id="mnModeLabel">Режим</span>
+    </button>
+  </div>
+</div>
+
+<div class="sheet-backdrop" id="dirSheetBackdrop" hidden>
+  <div class="bottom-sheet">
+    <div class="handle"></div>
+    <div class="sheet-head">НАПРАВЛЕНИЕ</div>
+    <div class="sheet-body" id="dirSheetBody"></div>
+  </div>
+</div>
+
+<div class="sheet-backdrop" id="modeSheetBackdrop" hidden>
+  <div class="bottom-sheet">
+    <div class="handle"></div>
+    <div class="sheet-head">АККАУНТ</div>
+    <div class="sheet-body" id="modeSheetBody"></div>
+  </div>
 </div>
 
 <div id="authScreen" style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:var(--bg);z-index:1000;padding:16px">
@@ -873,6 +929,7 @@ async function renderTeam(panel){
 
 function render(){
   renderRail();
+  renderMobileNav();
   if(state.dir==='home'){
     clearUnsubs();
     const main = document.getElementById('main');
@@ -2339,6 +2396,87 @@ async function cloudUpsertRow(coll, flatRow){
 function showApp(){
   document.getElementById('authScreen').style.display = 'none';
   document.getElementById('appRoot').style.display = '';
+  initMobileNav();
+}
+let mobileNavInited = false;
+function closeSheets(){
+  document.getElementById('dirSheetBackdrop').hidden = true;
+  document.getElementById('modeSheetBackdrop').hidden = true;
+}
+function initMobileNav(){
+  if(mobileNavInited) return; mobileNavInited = true;
+  document.getElementById('mnHome').addEventListener('click', ()=>{ closeSheets(); location.hash = '#home'; });
+  document.getElementById('mnDir').addEventListener('click', ()=>{
+    const willOpen = document.getElementById('dirSheetBackdrop').hidden;
+    closeSheets();
+    document.getElementById('dirSheetBackdrop').hidden = !willOpen;
+  });
+  document.getElementById('mnMode').addEventListener('click', ()=>{
+    const willOpen = document.getElementById('modeSheetBackdrop').hidden;
+    closeSheets();
+    document.getElementById('modeSheetBackdrop').hidden = !willOpen;
+  });
+  document.getElementById('dirSheetBackdrop').addEventListener('click', e=>{ if(e.target.id==='dirSheetBackdrop') closeSheets(); });
+  document.getElementById('modeSheetBackdrop').addEventListener('click', e=>{ if(e.target.id==='modeSheetBackdrop') closeSheets(); });
+}
+// Mirrors renderRail()/renderRailFooter() for the mobile bottom nav: label +
+// active state on the nav buttons, and the content of both bottom sheets
+// (direction picker, account/mode switcher). Called on every render() so it
+// always matches whatever the desktop sidebar is currently showing.
+function renderMobileNav(){
+  const mnDirLabel = document.getElementById('mnDirLabel');
+  if(!mnDirLabel) return;
+  const empDir = employeeDirection();
+  const curDir = DIRECTIONS.find(d=>d.slug===(empDir||state.dir));
+  mnDirLabel.textContent = curDir ? curDir.name : 'Направление';
+  document.getElementById('mnHome').classList.toggle('active', state.dir==='home');
+  document.getElementById('mnDir').classList.toggle('active', !!curDir);
+  document.getElementById('mnModeLabel').textContent = viewAsDirection ? directorTitle(viewAsDirection) : (isRealAdmin()?'Админ':'Я');
+
+  const dirsToShow = empDir ? DIRECTIONS.filter(d=>d.slug===empDir) : DIRECTIONS;
+  const dirBody = document.getElementById('dirSheetBody');
+  dirBody.innerHTML = `<div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px">
+    ${dirsToShow.map(d=>`<div class="sheet-chip ${d.slug===state.dir?'sel':''}" data-dir="${d.slug}">
+      <div class="n">${d.n}</div><div class="name">${d.name}</div>
+    </div>`).join('')}
+  </div>`;
+  dirBody.querySelectorAll('.sheet-chip').forEach(el=>{
+    el.addEventListener('click', ()=>{ closeSheets(); location.hash = '#'+el.dataset.dir+'/tasks'; });
+  });
+
+  const modeBody = document.getElementById('modeSheetBody');
+  if(!currentProfile){ modeBody.innerHTML = ''; return; }
+  const roleLine = viewAsDirection
+    ? 'Смотрите как: ' + directorTitle(viewAsDirection)
+    : (isRealAdmin() ? 'Администратор' : 'Сотрудник · ' + ((DIRECTIONS.find(d=>d.slug===currentProfile.direction)||{}).name||''));
+  const idHtml = `<div style="padding:0 4px 14px;border-bottom:1px solid var(--rail-active);margin-bottom:10px">
+    <div style="font-size:13px;font-weight:600;color:var(--rail-fg);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${(currentProfile.email||'').replace(/</g,'&lt;')}</div>
+    <div style="font-size:12px;color:var(--rail-fg-dim);margin-top:2px">${roleLine}</div>
+  </div>`;
+  let listHtml = '';
+  if(isRealAdmin()){
+    listHtml = `<div style="font-size:10.5px;letter-spacing:.06em;color:var(--rail-fg-dim);margin:0 4px 6px">РЕЖИМ РАБОТЫ</div>` +
+      (viewAsDirection ? `<div class="sheet-row" data-mode="admin"><div class="t">← Вернуться к администратору</div></div>` : '') +
+      DIRECTIONS.map(d=>`<div class="sheet-row ${viewAsDirection===d.slug?'sel':''}" data-mode="${d.slug}">
+        <div class="t">${directorTitle(d.slug)}</div><div class="s">Тестовый доступ · ${d.name}</div>
+      </div>`).join('');
+  }
+  const teamHtml = isAdmin() ? `<div class="sheet-row" id="mnTeam" style="margin-top:8px"><div class="t">👥 Управление сотрудниками</div></div>` : '';
+  modeBody.innerHTML = idHtml + listHtml + teamHtml + `<button id="mnLogout" style="width:100%;margin-top:14px;padding:10px;font-size:13px;background:none;border:1px solid var(--rail-fg-dim);color:var(--rail-fg);border-radius:8px;cursor:pointer">Выйти</button>`;
+  modeBody.querySelectorAll('.sheet-row[data-mode]').forEach(row=>{
+    row.addEventListener('click', ()=>{
+      const mode = row.dataset.mode;
+      closeSheets();
+      if(mode==='admin'){ viewAsDirection = null; location.hash = '#home'; }
+      else { viewAsDirection = mode; location.hash = '#'+mode+'/tasks'; }
+      parseRoute();
+      render();
+    });
+  });
+  const mnTeam = document.getElementById('mnTeam');
+  if(mnTeam) mnTeam.addEventListener('click', ()=>{ closeSheets(); location.hash = '#team'; });
+  const mnLogout = document.getElementById('mnLogout');
+  if(mnLogout) mnLogout.addEventListener('click', ()=>{ closeSheets(); if(sb) sb.auth.signOut(); });
 }
 function showAuth(msg, kind){
   document.getElementById('appRoot').style.display = 'none';
