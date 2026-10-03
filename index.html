@@ -717,7 +717,7 @@ function renderHome(panel){
           ${v.no?`<span class="task-id" style="flex:none">ID ${v.no}</span>`:''}
           <div class="task-title ${v.status==='done'?'done':''}" style="flex-basis:100%">${(v.text||'').replace(/</g,'&lt;')}</div>
           <span class="pill" style="flex:none">${dirObj?dirObj.name:v.direction}</span>
-          <span class="pill ${overdue?'bad':''}" style="flex:none;margin-left:auto">${overdue?'Просрочена · ':''}${v.due?fmtDue(v.due):'без срока'}</span>
+          <span class="pill ${overdue?'bad':''}" style="flex:none;margin-left:auto">${overdue?'Просрочена · ':''}${v.due?(v.hasDueTime?fmtDueTime(v.due):fmtDue(v.due)):'без срока'}</span>
         </div>
       </div>`;
     }).join('');
@@ -1012,6 +1012,19 @@ function openFloatingMenu(anchorEl, buildFn){
   setTimeout(()=>{ document.addEventListener('mousedown', onOutside, true); document.addEventListener('keydown', onEsc, true); }, 0);
   return { menu, close };
 }
+const REMINDER_OPTIONS = [
+  {v:15, l:'за 15 минут'},
+  {v:30, l:'за 30 минут'},
+  {v:45, l:'за 45 минут'},
+  {v:60, l:'за 1 час'},
+  {v:120, l:'за 2 часа'},
+  {v:180, l:'за 3 часа'},
+  {v:300, l:'за 5 часов'},
+];
+function remindSelectHTML(id, current){
+  const sel = Number(current) > 0 ? Number(current) : 30;
+  return `<select id="${id}" style="width:100%">${REMINDER_OPTIONS.map(o=>`<option value="${o.v}" ${o.v===sel?'selected':''}>${o.l}</option>`).join('')}</select>`;
+}
 function fmtDue(ts){
   if(!ts) return '';
   const d = new Date(ts);
@@ -1151,7 +1164,7 @@ function renderTasks(panel, dirSlug){
             <button class="task-proj">${v.project ? v.project.replace(/</g,'&lt;') : 'Без проекта'}</button>
             <button class="pri-btn ${pri}" data-pri="${pri}">${PRIORITY_LABELS[pri]}</button>
             <button class="task-pp" title="${v.status==='postponed'?'Вернуть в активные':'Отложить'}">${v.status==='postponed'?'▶':'⏸'}</button>
-            <button class="task-due" data-due="${v.due||''}">${v.due?fmtDue(v.due):'+ срок'}</button>
+            <button class="task-due" data-due="${v.due||''}">${v.due?(v.hasDueTime?fmtDueTime(v.due):fmtDue(v.due)):'+ срок'}</button>
             <button class="task-del" title="Удалить">×</button>
           </div>
         </div>
@@ -1283,7 +1296,7 @@ function renderTasks(panel, dirSlug){
         inp.focus();
         function commit(){
           const ts = inp.value ? new Date(inp.value+'T00:00:00').getTime() : null;
-          col.doc(id).update({ due: ts }).catch(()=>{});
+          col.doc(id).update({ due: ts, hasDueTime: false }).catch(()=>{});
         }
         inp.addEventListener('change', commit);
         inp.addEventListener('blur', ()=> applyFilterAndRender());
@@ -1465,6 +1478,10 @@ function openEventModal(col, id, getter){
         </div>
       </div>
       <div class="modal-field">
+        <div class="modal-label">Напомнить за</div>
+        ${remindSelectHTML('gmRemind', v.reminderMinutes)}
+      </div>
+      <div class="modal-field">
         <div class="modal-label">Участники</div>
         <input type="text" id="gmParticipants" value="${(v.participants||'').replace(/"/g,'&quot;')}" placeholder="Участники (необязательно)"/>
       </div>
@@ -1510,6 +1527,7 @@ function openEventModal(col, id, getter){
   backdrop.querySelector('#gmOnline').addEventListener('change', e=> patch({ online: e.target.checked }));
   backdrop.querySelector('#gmDate').addEventListener('change', recomputeWhen);
   backdrop.querySelector('#gmTime').addEventListener('change', recomputeWhen);
+  backdrop.querySelector('#gmRemind').addEventListener('change', e=> patch({ reminderMinutes: Number(e.target.value) }));
   backdrop.querySelector('#gmParticipants').addEventListener('blur', e=> patch({ participants: e.target.value.trim() }));
   backdrop.querySelector('#gmTopic').addEventListener('blur', e=> patch({ topic: e.target.value.trim() }));
   backdrop.querySelector('#gmProject').addEventListener('blur', e=> patch({ project: e.target.value.trim() }));
@@ -1569,10 +1587,18 @@ function openTaskModal(col, id, getter){
           <div class="modal-label">Проект</div>
           <input type="text" id="mProj" value="${(v.project||'').replace(/"/g,'&quot;')}" placeholder="Без проекта"/>
         </div>
-        <div class="modal-field" style="flex:1;min-width:160px">
+        <div class="modal-field" style="flex:1;min-width:120px">
           <div class="modal-label">Срок</div>
           <input type="date" id="mDue" value="${v.due ? new Date(v.due).toISOString().slice(0,10) : ''}"/>
         </div>
+        <div class="modal-field" style="flex:1;min-width:110px">
+          <div class="modal-label">Время</div>
+          <input type="time" id="mDueTime" lang="ru-RU" step="60" value="${v.due && v.hasDueTime ? new Date(v.due).toTimeString().slice(0,5) : ''}"/>
+        </div>
+      </div>
+      <div class="modal-field" id="mRemindWrap" style="${v.due && v.hasDueTime ? '' : 'display:none'}">
+        <div class="modal-label">Напомнить за</div>
+        ${remindSelectHTML('mRemind', v.reminderMinutes)}
       </div>
       <div class="modal-field">
         <div class="modal-label">Приоритет</div>
@@ -1627,7 +1653,19 @@ function openTaskModal(col, id, getter){
     if(name && db) db.collection('projects').add({ name, direction: v.direction, ts: Date.now() }).catch(()=>{});
   });
   const dueEl = backdrop.querySelector('#mDue');
-  dueEl.addEventListener('change', ()=> patch({ due: dueEl.value ? new Date(dueEl.value+'T00:00:00').getTime() : null }));
+  const dueTimeEl = backdrop.querySelector('#mDueTime');
+  const remindWrap = backdrop.querySelector('#mRemindWrap');
+  function recomputeDue(){
+    const dateVal = dueEl.value;
+    const timeVal = dueTimeEl.value;
+    const due = dateVal ? new Date(dateVal+'T'+(timeVal||'00:00')+':00').getTime() : null;
+    const hasDueTime = !!(dateVal && timeVal);
+    remindWrap.style.display = hasDueTime ? '' : 'none';
+    patch({ due, hasDueTime });
+  }
+  dueEl.addEventListener('change', recomputeDue);
+  dueTimeEl.addEventListener('change', recomputeDue);
+  backdrop.querySelector('#mRemind').addEventListener('change', e=> patch({ reminderMinutes: Number(e.target.value) }));
   const respEl = backdrop.querySelector('#mResp');
   respEl.addEventListener('blur', ()=> patch({ responsible: respEl.value.trim() }));
   const expEl = backdrop.querySelector('#mExpected');
