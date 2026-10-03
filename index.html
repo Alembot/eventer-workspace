@@ -170,6 +170,14 @@ textarea{resize:vertical;min-height:54px}
 .floating-menu .fm-addrow input{font-size:12.5px;padding:6px 8px}
 .floating-menu .fm-addrow button{flex:none;padding:6px 10px;font-size:12px}
 .filter-count{opacity:.65;font-size:11px;margin-left:3px}
+/* While a modal is open the page behind it is frozen (position:fixed, scroll
+   offset preserved via top + restored on close in JS) -- without this, on
+   iOS Safari a focused textarea inside a position:fixed modal makes the OS
+   scroll the real page to "bring the input into view", which visually tears
+   the fixed modal away from the top of the screen and exposes whatever was
+   behind it. Freezing the page gives Safari nowhere to scroll but inside
+   the modal's own scroll area. */
+body.modal-open{position:fixed;left:0;right:0;overflow:hidden}
 .modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:50;padding:20px}
 /* modal-card is a fixed-height flex column: head and footer never scroll
    away, only modal-body does -- this is what keeps the footer's action
@@ -1500,20 +1508,38 @@ function refreshOpenModal(){
   const backdrop = document.getElementById('taskModalBackdrop');
   if(!backdrop) return;
 }
+let modalScrollY = 0;
+function lockBodyScroll(){
+  if(document.body.classList.contains('modal-open')) return;
+  modalScrollY = window.scrollY || window.pageYOffset || 0;
+  document.body.style.top = (-modalScrollY) + 'px';
+  document.body.classList.add('modal-open');
+}
+function unlockBodyScroll(){
+  // Only one modal can be on screen at a time in this app, but guard anyway:
+  // don't unfreeze if another modal backdrop is still present.
+  if(document.getElementById('taskModalBackdrop') || document.getElementById('genericModalBackdrop')) return;
+  document.body.classList.remove('modal-open');
+  document.body.style.top = '';
+  window.scrollTo(0, modalScrollY);
+}
 function closeTaskModal(){
   const el = document.getElementById('taskModalBackdrop');
   if(el) el.remove();
   activeModalId = null; activeModalGetter = null;
+  unlockBodyScroll();
 }
 
 // ---------- Generic small edit modal (events, notes) ----------
 function closeGenericModal(){
   const el = document.getElementById('genericModalBackdrop');
   if(el) el.remove();
+  unlockBodyScroll();
 }
 function openEventModal(col, id, getter){
   closeGenericModal(); closeTaskModal();
   const cur = getter(); if(!cur) return;
+  lockBodyScroll();
   const v = cur.data;
   const backdrop = document.createElement('div');
   backdrop.className = 'modal-backdrop';
@@ -1612,6 +1638,7 @@ function openEventModal(col, id, getter){
 function openNoteModal(col, id, getter){
   closeGenericModal(); closeTaskModal();
   const cur = getter(); if(!cur) return;
+  lockBodyScroll();
   const v = cur.data;
   const backdrop = document.createElement('div');
   backdrop.className = 'modal-backdrop';
@@ -1643,6 +1670,7 @@ function openTaskModal(col, id, getter){
   closeTaskModal();
   activeModalId = id; activeModalGetter = getter;
   const cur = getter(); if(!cur) return;
+  lockBodyScroll();
   const v = cur.data;
   const backdrop = document.createElement('div');
   backdrop.className = 'modal-backdrop';
