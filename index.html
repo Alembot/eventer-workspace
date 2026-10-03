@@ -1337,7 +1337,7 @@ function renderRecordList(panel, kind, dirSlug){
       return `<div class="item record-item" data-id="${id}">
         <div class="record-head" data-id="${id}" style="display:flex;align-items:center;gap:8px;cursor:${body?'pointer':'default'}">
           ${body?`<button class="task-exp" data-id="${id}">${expanded?'▾':'▸'}</button>`:'<span class="task-exp" style="visibility:hidden">▸</span>'}
-          ${tag?`<span class="pill">${tag.replace(/</g,'&lt;')}</span>`:''}
+          ${tag && kind!=='decisions' ? `<span class="pill">${tag.replace(/</g,'&lt;')}</span>` : ''}
           <div class="txt" style="flex:1"><b style="opacity:.75">${noLabel}:</b> ${title.replace(/</g,'&lt;')}</div>
           <button class="del" title="${armed?'Нажмите ещё раз, чтобы подтвердить удаление':'Удалить'}" style="margin-left:14px;flex-shrink:0;${armed?'background:#e5484d;color:#fff;border-radius:6px;padding:3px 10px;font-size:12px;border:none;cursor:pointer':'background:transparent;border:none;opacity:.55;cursor:pointer;font-size:14px'}">${armed?'Удалить?':'🗑'}</button>
         </div>
