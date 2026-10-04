@@ -214,11 +214,18 @@ body.modal-open{position:fixed;left:0;right:0;overflow:hidden}
 .empty{color:var(--fg-muted);font-size:13px;padding:18px 0;text-align:center}
 .exp-row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px}
 .exp-row:last-child{border-bottom:none}
-.msg{padding:10px 12px;border-radius:8px;background:var(--surface-2);border:1px solid var(--border);font-size:13px}
-.msg .who{font-weight:700;font-size:12px;margin-bottom:3px}
+.msg{padding:10px 12px;border-radius:8px;background:var(--surface-2);border:1px solid var(--border);font-size:13px;overflow-wrap:anywhere;position:relative}
+.msg .who{font-weight:700;font-size:12px;margin-bottom:3px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .msg.claude{border-left:3px solid var(--accent)}
-.msg .to-tag{font-weight:400;color:var(--fg-muted);font-size:11px;margin-left:6px}
-.chat-input-wrap{position:relative;flex:1}
+.msg .to-tag{font-weight:400;color:var(--fg-muted);font-size:11px}
+.msg-copy{margin-left:auto;flex:none;border:1px solid var(--border);background:var(--surface);color:var(--fg-muted);border-radius:6px;padding:2px 7px;font-size:11px;cursor:pointer;line-height:1.5}
+.msg-copy:hover{color:var(--fg);border-color:var(--accent)}
+.msg-copy.copied{color:var(--accent);border-color:var(--accent)}
+.rcp-row{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+.rcp-chip{border:1px solid var(--border);background:var(--surface);color:var(--fg-muted);border-radius:999px;padding:4px 10px;font-size:12px;cursor:pointer;user-select:none}
+.rcp-chip.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.rcp-chip.lock{cursor:default;opacity:.85}
+.chat-input-wrap{position:relative;flex:1;min-width:0}
 .mention-box{position:absolute;bottom:calc(100% + 6px);left:0;right:0;background:var(--surface);border:1px solid var(--border);border-radius:8px;box-shadow:0 6px 18px rgba(0,0,0,.18);max-height:220px;overflow-y:auto;z-index:20}
 .mention-item{padding:8px 12px;font-size:13px;cursor:pointer;display:flex;justify-content:space-between;gap:8px}
 .mention-item:hover,.mention-item.hi{background:var(--surface-2)}
@@ -272,6 +279,11 @@ body.modal-open{position:fixed;left:0;right:0;overflow:hidden}
   .main{padding:14px 12px 86px}
   html,body{overflow-x:hidden}
   .app{overflow-x:hidden}
+  /* iOS Safari auto-zooms the page on focusing any input/textarea shown at
+     less than 16px, and the viewport can stay zoomed/panned after — that's
+     the "экран двигается и шире iPhone" bug on #msgInput (inherited 14px). */
+  input[type=text],textarea{font-size:16px}
+  .chat-input-wrap,.row:has(#msgInput){min-width:0;max-width:100%}
   .task{margin-bottom:5px}
   .task-row{flex-wrap:wrap;row-gap:4px;padding:7px 9px;gap:6px;align-items:flex-start}
   .task-exp,.task-row>input[type=checkbox]{margin-top:1px}
@@ -1924,13 +1936,23 @@ function renderRecordList(panel, kind, dirSlug){
 function renderMessages(panel, dirSlug){
   const curDir = DIRECTIONS.find(d=>d.slug===dirSlug);
   const myTitle = roleTitle(dirSlug);
+  // Recipient chips: this direction's own RM is always included (locked);
+  // any other manager (Гл менеджер, another direction's RM...) can be toggled
+  // on so the same message is addressed to several managers at once and each
+  // can answer in turn.
+  const otherTargets = MENTION_TARGETS.filter(t=> t.slug!==dirSlug);
+  const selected = new Set(); // extra recipients beyond dirSlug itself
   panel.innerHTML = `
     <div class="card">
       <div class="list" id="msgList"><div class="empty">Загрузка…</div></div>
-      <div class="row" style="margin-top:12px;align-items:flex-start">
+      <div class="rcp-row" id="rcpRow">
+        <span class="rcp-chip lock">${myTitle}</span>
+        ${otherTargets.map(t=>`<span class="rcp-chip" data-slug="${t.slug}" title="${t.hint.replace(/"/g,'&quot;')}">${t.label}</span>`).join('')}
+      </div>
+      <div class="row" style="margin-top:8px;align-items:flex-start">
         <div class="chat-input-wrap">
           <div class="mention-box" id="mentionBox" style="display:none"></div>
-          <input type="text" id="msgInput" placeholder="Сообщение — ответит ${myTitle}. Начни с @, чтобы адресовать другому направлению…"/>
+          <input type="text" id="msgInput" placeholder="Сообщение — выбери получателей выше (по умолчанию ${myTitle})…"/>
         </div>
         <button class="btn" id="sendMsg">Отправить</button>
       </div>
@@ -1940,14 +1962,25 @@ function renderMessages(panel, dirSlug){
   const q = col.where('direction','==',dirSlug).orderBy('ts','desc').limit(50);
   const listEl = panel.querySelector('#msgList');
   let latest = [];
+
+  function copyBtn(text){
+    const enc = encodeURIComponent(text||'');
+    return `<button type="button" class="msg-copy" data-text="${enc}">Копировать</button>`;
+  }
+  function toLabelsOf(m){
+    let list = Array.isArray(m.to) ? m.to : (m.to ? [m.to] : []);
+    list = list.filter(s=> s && s!==dirSlug);
+    return list.map(s=> roleTitle(s).replace(/</g,'&lt;'));
+  }
   const unsub = q.onSnapshot(snap=>{
     latest = snap.docs.map(d=>d.data()).reverse();
     if(!latest.length){ listEl.innerHTML = `<div class="empty">Сообщений пока нет — просто напиши, ответит ${myTitle}.</div>`; return; }
     listEl.innerHTML = latest.map(m=>{
-      const toTag = m.to && m.to!==dirSlug ? `<span class="to-tag">→ ${roleTitle(m.to).replace(/</g,'&lt;')}</span>` : '';
+      const labels = toLabelsOf(m);
+      const toTag = labels.length ? `<span class="to-tag">→ ${labels.join(', ')}</span>` : '';
       return `
       <div class="msg ${m.role?'claude':''}">
-        <div class="who">${(m.author||'').replace(/</g,'&lt;')}${toTag}</div>
+        <div class="who">${(m.author||'').replace(/</g,'&lt;')}${toTag}${copyBtn(m.text||'')}</div>
         <div>${(m.text||'').replace(/</g,'&lt;')}</div>
       </div>`;
     }).join('');
@@ -1955,16 +1988,41 @@ function renderMessages(panel, dirSlug){
   }, err=>{ listEl.innerHTML = `<div class="empty">Нет доступа (${err.code}).</div>`; });
   unsubs['messages']=unsub;
 
+  // Copy-to-clipboard for any message (mine or a manager's), via delegation.
+  listEl.addEventListener('click', e=>{
+    const btn = e.target.closest('.msg-copy');
+    if(!btn) return;
+    const text = decodeURIComponent(btn.dataset.text||'');
+    const done = ()=>{ btn.classList.add('copied'); btn.textContent='✓ Скопировано'; setTimeout(()=>{ btn.classList.remove('copied'); btn.textContent='Копировать'; }, 1400); };
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(text).then(done).catch(done);
+    } else {
+      const ta = document.createElement('textarea'); ta.value = text; ta.style.position='fixed'; ta.style.opacity='0';
+      document.body.appendChild(ta); ta.select();
+      try{ document.execCommand('copy'); }catch(e){}
+      ta.remove(); done();
+    }
+  });
+
   const input = panel.querySelector('#msgInput');
   const mentionBox = panel.querySelector('#mentionBox');
   const sendBtn = panel.querySelector('#sendMsg');
+  const rcpRow = panel.querySelector('#rcpRow');
+
+  rcpRow.querySelectorAll('.rcp-chip[data-slug]').forEach(chip=>{
+    chip.addEventListener('click', ()=>{
+      const slug = chip.dataset.slug;
+      if(selected.has(slug)){ selected.delete(slug); chip.classList.remove('on'); }
+      else { selected.add(slug); chip.classList.add('on'); }
+    });
+  });
 
   async function post(author, text, extra){
     await col.add({ direction:dirSlug, author, text, ts: Date.now(), ...(extra||{}) });
   }
 
-  // --- "@" mention autocomplete: lets a message in this chat be addressed to
-  // another direction's RM, the Финансовый директор, or the general Гл менеджер ---
+  // --- "@" mention autocomplete: typing "@" still works as a quick way to
+  // toggle a recipient chip without reaching for the mouse ---
   function mentionQuery(){
     const upto = input.value.slice(0, input.selectionStart ?? input.value.length);
     const m = /(^|\s)@([^\s@]*)$/.exec(upto);
@@ -1975,17 +2033,22 @@ function renderMessages(panel, dirSlug){
     const q = qtext.toLowerCase();
     const matches = MENTION_TARGETS.filter(t=> t.label.toLowerCase().includes(q) || t.hint.toLowerCase().includes(q));
     if(!matches.length){ closeMention(); return; }
-    mentionBox.innerHTML = matches.map((t,i)=>`<div class="mention-item${i===0?' hi':''}" data-label="${t.label.replace(/"/g,'&quot;')}"><span class="mn">${t.label}</span><span class="md">${t.hint}</span></div>`).join('');
+    mentionBox.innerHTML = matches.map((t,i)=>`<div class="mention-item${i===0?' hi':''}" data-slug="${t.slug}"><span class="mn">${t.label}</span><span class="md">${t.hint}</span></div>`).join('');
     mentionBox.style.display='block';
     mentionBox.querySelectorAll('.mention-item').forEach(el=>{
-      el.addEventListener('mousedown', e=>{ e.preventDefault(); pickMention(el.dataset.label); });
+      el.addEventListener('mousedown', e=>{ e.preventDefault(); pickMention(el.dataset.slug); });
     });
   }
-  function pickMention(label){
+  function pickMention(slug){
+    // remove the "@query" text the user typed and toggle the matching chip instead
     const pos = input.selectionStart ?? input.value.length;
-    const before = input.value.slice(0, pos).replace(/(^|\s)@([^\s@]*)$/, `$1@[${label}] `);
+    const before = input.value.slice(0, pos).replace(/(^|\s)@([^\s@]*)$/, '$1');
     input.value = before + input.value.slice(pos);
     closeMention();
+    if(slug!==dirSlug){
+      const chip = rcpRow.querySelector(`.rcp-chip[data-slug="${slug}"]`);
+      if(chip && !selected.has(slug)){ selected.add(slug); chip.classList.add('on'); }
+    }
     input.focus();
   }
   input.addEventListener('input', ()=>{
@@ -1994,47 +2057,42 @@ function renderMessages(panel, dirSlug){
   });
   input.addEventListener('blur', ()=> setTimeout(closeMention, 150));
 
-  // A message starting with "@[Role Label] " is addressed to that role; otherwise
-  // it goes to this direction's own RM (or Финансовый директор, for Finance).
-  function parseMention(text){
-    const m = /^@\[([^\]]+)\]\s*([\s\S]*)$/.exec(text.trim());
-    if(!m) return null;
-    const target = MENTION_TARGETS.find(t=> t.label.toLowerCase()===m[1].trim().toLowerCase());
-    return target ? { targetSlug: target.slug, rest: m[2].trim() } : null;
-  }
-
   async function autoReply(targetSlug, historyText){
     if(!sample) return;
     const title = roleTitle(targetSlug);
     if(targetSlug==='general'){
       try{
         const res = await sample(`Ты — ${title}, общий ассистент Eventer Workspace Кайрата Кульбаева, не привязан к одному направлению. Вот последние сообщения в чате направления «${curDir.name}»:\n\n${historyText}\n\nОтветь по существу на последнее сообщение, коротко и конкретно, на русском.`);
-        await post(title, res.text, { role:true, to: targetSlug });
+        await post(title, res.text, { role:true, to: [targetSlug] });
       }catch(e){}
       return;
     }
     const dirName = (DIRECTIONS.find(d=>d.slug===targetSlug)||{}).name || targetSlug;
-    const crossNote = targetSlug!==dirSlug ? ` Сообщение пришло из чата направления «${curDir.name}» и адресовано тебе через @упоминание.` : '';
+    const crossNote = targetSlug!==dirSlug ? ` Сообщение пришло из чата направления «${curDir.name}» и адресовано тебе через выбор получателя.` : '';
     try{
       const res = await sample(`Ты — ${title}, отвечаешь за направление «${dirName}» в Eventer Workspace Кайрата Кульбаева.${crossNote} Вот последние сообщения:\n\n${historyText}\n\nОтветь на последнее сообщение от своего лица как ${title}, коротко и конкретно, на русском.`);
-      await post(title, res.text, { role:true, to: targetSlug });
+      await post(title, res.text, { role:true, to: [targetSlug] });
     }catch(e){}
   }
 
   async function submit(){
     const raw = input.value.trim(); if(!raw) return;
     closeMention();
-    const mention = parseMention(raw);
-    const targetSlug = mention ? mention.targetSlug : dirSlug;
-    const text = mention ? mention.rest : raw;
-    if(!text) return;
+    const text = raw;
+    const extraRecipients = Array.from(selected);
     const authorName = (user && (await user.me())?.name) || 'Кайрат';
     input.value='';
     sendBtn.disabled = true;
     try{
-      await post(authorName, text, mention ? { to: targetSlug } : undefined);
+      await post(authorName, text, extraRecipients.length ? { to: extraRecipients } : undefined);
       const historyText = latest.slice(-15).map(m=>`${m.author}: ${m.text}`).join('\n') + `\n${authorName}: ${text}`;
-      await autoReply(targetSlug, historyText);
+      // Each selected manager gets a chance to answer in turn.
+      for(const targetSlug of extraRecipients){
+        await autoReply(targetSlug, historyText);
+      }
+      if(!extraRecipients.length){
+        await autoReply(dirSlug, historyText);
+      }
     }catch(e){ alert('Не удалось отправить: '+(e&&e.code||e)); }
     sendBtn.disabled = false;
   }
@@ -2043,7 +2101,7 @@ function renderMessages(panel, dirSlug){
     if(e.key==='Enter' && mentionBox.style.display==='block'){
       e.preventDefault();
       const hi = mentionBox.querySelector('.mention-item.hi') || mentionBox.querySelector('.mention-item');
-      if(hi) pickMention(hi.dataset.label);
+      if(hi) pickMention(hi.dataset.slug);
       return;
     }
     if(e.key==='Enter'){ e.preventDefault(); submit(); }
