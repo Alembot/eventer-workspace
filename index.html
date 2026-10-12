@@ -870,9 +870,15 @@ function renderHome(panel){
   const eventsCol = db.collection('events');
   const eventListEl = panel.querySelector('#eventList');
   let eventDocsCache = [];
-  const unsubEv = eventsCol.orderBy('when','asc').limit(50).onSnapshot(snap=>{
+  const unsubEv = eventsCol.orderBy('when','asc').onSnapshot(snap=>{
     const now = Date.now();
-    const docs = snap.docs.map(d=>({id:d.id, data:d.data()})).filter(d=> !d.data.when || d.data.when >= now - 86400000);
+    // The home card is only for events that have not yet started. Past
+    // records remain available in the full events screen and are never
+    // deleted or modified by this view.
+    const docs = snap.docs
+      .map(d=>({id:d.id, data:d.data()}))
+      .filter(d=> !d.data.when || d.data.when >= now)
+      .slice(0, 50);
     eventDocsCache = docs;
     if(!docs.length){ eventListEl.innerHTML = '<div class="empty">Событий пока нет.</div>'; return; }
     eventListEl.innerHTML = docs.map(({id,data:v})=>{
