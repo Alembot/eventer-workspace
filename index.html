@@ -370,10 +370,19 @@ body.modal-open{position:fixed;left:0;right:0;overflow:hidden}
     <div style="font-family:var(--display);font-size:18px;font-weight:600;margin-bottom:4px">Eventer Workspace</div>
     <div style="font-size:12.5px;color:var(--fg-muted);margin-bottom:18px">Вход для синхронизации данных между устройствами</div>
     <div id="authMsg" style="display:none;font-size:12.5px;padding:8px 10px;border-radius:8px;margin-bottom:12px"></div>
-    <input id="authEmail" type="email" placeholder="Почта" autocomplete="username" style="width:100%;padding:10px 12px;margin-bottom:8px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:var(--bg);color:var(--fg)"/>
-    <input id="authPass" type="password" placeholder="Пароль" autocomplete="current-password" style="width:100%;padding:10px 12px;margin-bottom:14px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:var(--bg);color:var(--fg)"/>
-    <button id="authSignIn" class="btn" style="width:100%;margin-bottom:8px;padding:10px;border-radius:8px;border:none;background:var(--accent);color:var(--accent-fg);font-size:14px;cursor:pointer">Войти</button>
-    <button id="authSignUp" style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--fg);font-size:13px;cursor:pointer">Первый вход — создать пароль</button>
+    <div id="authLoginPanel">
+      <input id="authEmail" type="email" placeholder="Почта" autocomplete="username" style="width:100%;padding:10px 12px;margin-bottom:8px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:var(--bg);color:var(--fg)"/>
+      <input id="authPass" type="password" placeholder="Пароль" autocomplete="current-password" style="width:100%;padding:10px 12px;margin-bottom:14px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:var(--bg);color:var(--fg)"/>
+      <button id="authSignIn" class="btn" style="width:100%;margin-bottom:8px;padding:10px;border-radius:8px;border:none;background:var(--accent);color:var(--accent-fg);font-size:14px;cursor:pointer">Войти</button>
+      <button id="authSignUp" style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--fg);font-size:13px;cursor:pointer">Первый вход — создать пароль</button>
+      <button id="authForgot" style="width:100%;margin-top:8px;padding:8px;border:none;background:transparent;color:var(--accent);font-size:13px;cursor:pointer">Забыли пароль?</button>
+    </div>
+    <div id="authRecoveryPanel" style="display:none">
+      <div style="font-size:13px;color:var(--fg-muted);margin-bottom:12px">Задайте новый пароль для Eventer Workspace.</div>
+      <input id="authNewPass" type="password" placeholder="Новый пароль" autocomplete="new-password" style="width:100%;padding:10px 12px;margin-bottom:8px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:var(--bg);color:var(--fg)"/>
+      <input id="authNewPassConfirm" type="password" placeholder="Повторите новый пароль" autocomplete="new-password" style="width:100%;padding:10px 12px;margin-bottom:14px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:var(--bg);color:var(--fg)"/>
+      <button id="authUpdatePass" class="btn" style="width:100%;padding:10px;border-radius:8px;border:none;background:var(--accent);color:var(--accent-fg);font-size:14px;cursor:pointer">Сохранить новый пароль</button>
+    </div>
   </div>
 </div>
 
@@ -2819,6 +2828,11 @@ function showAuth(msg, kind){
     m.style.color = kind==='error' ? 'var(--bad)' : 'var(--good)';
   } else { m.style.display = 'none'; }
 }
+function showPasswordRecovery(){
+  document.getElementById('authLoginPanel').style.display = 'none';
+  document.getElementById('authRecoveryPanel').style.display = 'block';
+  showAuth('Открылось восстановление пароля. Задайте новый пароль.', 'success');
+}
 
 // ---------- Roles: admin (Kairat, full access) vs employee (locked to one
 // direction, read-only on Решения/Контекст — enforced both here in the UI
@@ -2961,6 +2975,9 @@ async function startAppWithCloud(){
 function wireAuthScreen(){
   const emailI = document.getElementById('authEmail');
   const passI = document.getElementById('authPass');
+  const newPassI = document.getElementById('authNewPass');
+  const newPassConfirmI = document.getElementById('authNewPassConfirm');
+  const RESET_REDIRECT_URL = 'https://alembot.github.io/eventer-workspace/';
   document.getElementById('authSignIn').addEventListener('click', async ()=>{
     if(!sb) return showAuth('Supabase недоступен в этом окне.', 'error');
     const email = emailI.value.trim(), password = passI.value;
@@ -2980,6 +2997,25 @@ function wireAuthScreen(){
     if(error) return showAuth(error.message, 'error');
     if(data.session){ await startAppWithCloud(); return; }
     showAuth('Письмо отправлено на ' + email + ' — открой его и перейди по ссылке, затем вернись сюда и нажми «Войти».');
+  });
+  document.getElementById('authForgot').addEventListener('click', async ()=>{
+    if(!sb) return showAuth('Supabase недоступен в этом окне.', 'error');
+    const email = emailI.value.trim();
+    if(!email) return showAuth('Введите почту, на которую зарегистрирован Workspace.', 'error');
+    showAuth('Отправляем письмо для сброса пароля…');
+    const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: RESET_REDIRECT_URL });
+    if(error) return showAuth(error.message, 'error');
+    showAuth('Если эта почта зарегистрирована, письмо для сброса пароля уже отправлено. Откройте ссылку из письма в этом браузере.', 'success');
+  });
+  document.getElementById('authUpdatePass').addEventListener('click', async ()=>{
+    if(!sb) return showAuth('Supabase недоступен в этом окне.', 'error');
+    const password = newPassI.value, confirmation = newPassConfirmI.value;
+    if(password.length < 6) return showAuth('Пароль должен быть не короче 6 символов.', 'error');
+    if(password !== confirmation) return showAuth('Пароли не совпадают.', 'error');
+    showAuth('Сохраняем новый пароль…');
+    const { error } = await sb.auth.updateUser({ password });
+    if(error) return showAuth(error.message, 'error');
+    await startAppWithCloud();
   });
 }
 
@@ -3035,7 +3071,10 @@ async function boot(){
     session = data && data.session;
   }catch(e){ console.error('getSession failed', e); }
 
-  if(session){
+  const passwordRecoveryFromLink = /(?:^|[?#&])type=recovery(?:&|$)/.test(location.hash) || /(?:^|[?#&])type=recovery(?:&|$)/.test(location.search);
+  if(session && passwordRecoveryFromLink){
+    showPasswordRecovery();
+  } else if(session){
     await startAppWithCloud();
   } else {
     showAuth();
@@ -3043,7 +3082,9 @@ async function boot(){
 
   // Pick up magic-link/email-confirmation redirects and cross-tab session changes.
   sb.auth.onAuthStateChange((event, sess)=>{
-    if(event === 'SIGNED_IN' && sess && db !== supaShim){
+    if(event === 'PASSWORD_RECOVERY' && sess){
+      showPasswordRecovery();
+    } else if(event === 'SIGNED_IN' && sess && db !== supaShim){
       startAppWithCloud();
     } else if(event === 'SIGNED_OUT'){
       location.reload();
