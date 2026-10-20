@@ -2086,9 +2086,11 @@ function renderMessages(panel, dirSlug){
     listEl.innerHTML = latest.map(m=>{
       const labels = toLabelsOf(m);
       const toTag = labels.length ? `<span class="to-tag">→ ${labels.join(', ')}</span>` : '';
+      const fromName = m.originDirection && m.originDirection!==dirSlug
+        ? `<span class="to-tag">← ${(DIRECTIONS.find(d=>d.slug===m.originDirection)||{}).name||m.originDirection}</span>` : '';
       return `
       <div class="msg ${m.role?'claude':''}">
-        <div class="who">${(m.author||'').replace(/</g,'&lt;')}${toTag}${copyBtn(m.text||'')}</div>
+        <div class="who">${(m.author||'').replace(/</g,'&lt;')}${toTag}${fromName}${copyBtn(m.text||'')}</div>
         <div>${(m.text||'').replace(/</g,'&lt;')}</div>
       </div>`;
     }).join('');
@@ -2120,6 +2122,26 @@ function renderMessages(panel, dirSlug){
 
   async function post(author, text, extra){
     await col.add({ direction:dirSlug, author, text, ts: Date.now(), ...(extra||{}) });
+  }
+
+  // A message addressed to another direction must exist in that direction's
+  // own feed as well. Previously it stayed only in the sender's feed, so the
+  // recipient manager had no way to see a new assignment in Eventer Workspace.
+  async function postToRecipients(author, text, recipients){
+    const ts = Date.now();
+    await col.add({ direction:dirSlug, author, text, ts, to:recipients });
+    for(const recipient of recipients){
+      if(recipient===dirSlug) continue;
+      await col.add({
+        direction:recipient,
+        author,
+        text,
+        ts,
+        to:[recipient],
+        originDirection:dirSlug,
+        routed:true
+      });
+    }
   }
 
   // --- "@" (собачка): открывает список менеджеров прямо в поле ввода.
@@ -2197,7 +2219,8 @@ function renderMessages(panel, dirSlug){
     input.value='';
     sendBtn.disabled = true;
     try{
-      await post(authorName, text, extraRecipients.length ? { to: extraRecipients } : undefined);
+      if(extraRecipients.length) await postToRecipients(authorName, text, extraRecipients);
+      else await post(authorName, text);
       const historyText = latest.slice(-15).map(m=>`${m.author}: ${m.text}`).join('\n') + `\n${authorName}: ${text}`;
       // Каждый выбранный менеджер получает шанс ответить по очереди.
       for(const targetSlug of extraRecipients){
