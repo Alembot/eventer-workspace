@@ -702,6 +702,9 @@ function renderRailFooter(){
 }
 
 const DIRS_WITH_FINANCE_AND_MESSAGES = ['academy','afisha'];
+// Сообщения — общий рабочий канал каждого направления. Финансы остаются
+// специализированной вкладкой только там, где они нужны.
+const DIRS_WITH_MESSAGES = DIRECTIONS.map(d=>d.slug);
 const DIRS_WITH_MARKETING = ['academy'];
 function tabsForDir(slug){
   const base = [['tasks','Задачи'],['apps','Приложения'],['decisions','Решения'],['context','Контекст']];
@@ -709,7 +712,7 @@ function tabsForDir(slug){
   if(DIRS_WITH_FINANCE_AND_MESSAGES.includes(slug)) tabs.push(['finance','Финансы']);
   if(DIRS_WITH_MARKETING.includes(slug)) tabs.push(['marketing','Маркетинг и продажи']);
   tabs.push(base[1], base[2], base[3]);
-  if(DIRS_WITH_FINANCE_AND_MESSAGES.includes(slug)) tabs.push(['messages','Сообщения']);
+  if(DIRS_WITH_MESSAGES.includes(slug)) tabs.push(['messages','Сообщения']);
   return tabs;
 }
 
