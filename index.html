@@ -2247,14 +2247,23 @@ async function fetchYearFinance(year, refresh){
   const revenue = lastVal(findRow(pnlRows,'Выручка'));
   const opResult = lastVal(findRow(pnlRows,'Операционный результат'));
   const netCash = lastVal(findRow(cfRows,'Чистый денежный поток'));
-  const programs = ['Event-менеджер','Event-продюсер','Producer Bootcamp'].map(name=>{
-    const row = findRow(ueRows, name);
-    const students = row ? parseMoney(row[1]) : null;
-    const rev = row ? parseMoney(row[4]) : null;
-    return { name, students, revenue: rev };
-  });
-  const totalStudents = programs.reduce((s,p)=>s+(p.students||0),0);
-  return { expenses, revenue, opResult, netCash, programs, totalStudents, fetchedAt: Date.now() };
+  // Программы — все строки между заголовком «Программа» и «Итого», с любыми названиями:
+  // раньше искали фиксированные имена и при переименовании в модели теряли студентов.
+  const headerIdx = ueRows.findIndex(r => r && String(r[0]||'').trim() === 'Программа');
+  const programs = [];
+  for(let i = headerIdx + 1; headerIdx >= 0 && i < ueRows.length; i++){
+    const name = String((ueRows[i]||[])[0]||'').trim();
+    if(!name) continue;
+    if(name === 'Итого') break;
+    programs.push({ name, students: parseMoney(ueRows[i][1]), revenue: parseMoney(ueRows[i][4]) });
+  }
+  // Онлайн — программы с «онлайн» в названии; остальное (в т.ч. Bootcamp) — очно.
+  const isOnline = p => /онлайн|online/i.test(p.name);
+  const sum = list => list.reduce((s,p)=>s+(p.students||0),0);
+  const totalStudents = sum(programs);
+  const onlineStudents = sum(programs.filter(isOnline));
+  const offlineStudents = totalStudents - onlineStudents;
+  return { expenses, revenue, opResult, netCash, programs, totalStudents, onlineStudents, offlineStudents, fetchedAt: Date.now() };
 }
 
 function renderFinance(panel, dirSlug){
@@ -2294,7 +2303,7 @@ async function loadFinance(panel, refresh){
     const margin = f.revenue ? (f.opResult/f.revenue*100).toFixed(1) : '—';
     body.innerHTML = `
       <div class="grid" style="margin-bottom:16px">
-        <div class="kpi"><div class="label">Студенты за год</div><div class="value num">${fmtInt(f.totalStudents)}</div></div>
+        <div class="kpi"><div class="label">Студенты за год</div><div class="value num">${fmtInt(f.totalStudents)}</div><div class="sub">очно ${fmtInt(f.offlineStudents)} · онлайн ${fmtInt(f.onlineStudents)}</div></div>
         <div class="kpi"><div class="label">Выручка</div><div class="value num">${fmtMoney(f.revenue)}</div></div>
         <div class="kpi"><div class="label">Расходы</div><div class="value num">${fmtMoney(f.expenses)}</div></div>
         <div class="kpi"><div class="label">Операционный результат</div><div class="value num">${fmtMoney(f.opResult)}</div><div class="sub">${margin}% от выручки</div></div>
