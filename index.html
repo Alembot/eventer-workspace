@@ -2247,15 +2247,16 @@ async function fetchYearFinance(year, refresh){
   const revenue = lastVal(findRow(pnlRows,'Выручка'));
   const opResult = lastVal(findRow(pnlRows,'Операционный результат'));
   const netCash = lastVal(findRow(cfRows,'Чистый денежный поток'));
-  // Программы — все строки между заголовком «Программа» и «Итого», с любыми названиями:
-  // раньше искали фиксированные имена и при переименовании в модели теряли студентов.
-  const headerIdx = ueRows.findIndex(r => r && String(r[0]||'').trim() === 'Программа');
+  // Программы — все строки с числом студентов до строки «Итого», с любыми названиями.
+  // Заголовок «Программа» не ищем: gviz часто забирает его в заголовки колонок и не отдаёт строкой.
   const programs = [];
-  for(let i = headerIdx + 1; headerIdx >= 0 && i < ueRows.length; i++){
-    const name = String((ueRows[i]||[])[0]||'').trim();
+  for(const r of ueRows){
+    const name = String((r||[])[0]||'').trim();
     if(!name) continue;
     if(name === 'Итого') break;
-    programs.push({ name, students: parseMoney(ueRows[i][1]), revenue: parseMoney(ueRows[i][4]) });
+    const students = parseMoney(r[1]);
+    if(students === null) continue;
+    programs.push({ name, students, revenue: parseMoney(r[4]) });
   }
   // Онлайн — программы с «онлайн» в названии; остальное (в т.ч. Bootcamp) — очно.
   const isOnline = p => /онлайн|online/i.test(p.name);
