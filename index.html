@@ -870,9 +870,12 @@ function renderHome(panel){
   const eventsCol = db.collection('events');
   const eventListEl = panel.querySelector('#eventList');
   let eventDocsCache = [];
-  const unsubEv = eventsCol.orderBy('when','asc').limit(50).onSnapshot(snap=>{
-    const now = Date.now();
-    const docs = snap.docs.map(d=>({id:d.id, data:d.data()})).filter(d=> !d.data.when || d.data.when >= now - 86400000);
+  // Прошедшие события уходят с главной сами (решение Кайрата 04.11.2026): встреча со временем — через час
+  // после начала, событие без времени — после конца того дня. Из базы не удаляются, просто не показываются.
+  let eventSnapDocs = [];
+  const eventGone = v => { if(!v.when) return false; if(v.hasTime) return v.when + 3600000 < Date.now(); const d = new Date(v.when); d.setHours(23,59,59,999); return d.getTime() < Date.now(); };
+  const renderEventList = () => {
+    const docs = eventSnapDocs.filter(d=> !eventGone(d.data)).slice(0,50);
     eventDocsCache = docs;
     if(!docs.length){ eventListEl.innerHTML = '<div class="empty">Событий пока нет.</div>'; return; }
     eventListEl.innerHTML = docs.map(({id,data:v})=>{
@@ -903,7 +906,14 @@ function renderHome(panel){
     eventListEl.querySelectorAll('.del').forEach(btn=>{
       btn.addEventListener('click', (e)=>{ e.stopPropagation(); eventsCol.doc(btn.closest('.item').dataset.id).delete().catch(()=>{}); });
     });
+  };
+  const unsubSnapEv = eventsCol.orderBy('when','asc').onSnapshot(snap=>{
+    eventSnapDocs = snap.docs.map(d=>({id:d.id, data:d.data()}));
+    renderEventList();
   }, ()=>{ eventListEl.innerHTML = '<div class="empty">Нет доступа на чтение.</div>'; });
+  // раз в минуту пересматриваем список, чтобы прошедшая встреча ушла без перезагрузки страницы
+  const evTimer = setInterval(renderEventList, 60000);
+  const unsubEv = () => { clearInterval(evTimer); if(typeof unsubSnapEv==='function') unsubSnapEv(); };
   unsubs['home-events']=unsubEv;
   const evTitle = panel.querySelector('#newEventTitle');
   const evType = panel.querySelector('#newEventType');
