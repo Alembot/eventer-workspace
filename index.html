@@ -400,6 +400,7 @@ const DIRECTIONS = [
 // everyone else is "РМ <направление>", per Kairat's naming rule.
 function roleTitle(slug){
   if(slug==='general') return 'Гл менеджер';
+  if(slug==='dot') return 'Dot Kairat';
   if(slug==='finance') return 'Финансовый директор';
   const d = DIRECTIONS.find(x=>x.slug===slug);
   return d ? `РМ ${d.name}` : 'РМ';
@@ -408,6 +409,7 @@ function roleTitle(slug){
 // role plus the general-purpose "Гл менеджер".
 const MENTION_TARGETS = [
   {slug:'general', label:'Гл менеджер', hint:'Общий ассистент Eventer Workspace'},
+  {slug:'dot', label:'Dot Kairat', hint:'Персональный ассистент Кайрата (GPT)'},
   ...DIRECTIONS.map(d=>({slug:d.slug, label:roleTitle(d.slug), hint:d.name})),
 ];
 
@@ -2165,7 +2167,7 @@ function renderMessages(panel, dirSlug){
   }
 
   async function autoReply(targetSlug, historyText){
-    if(!sample) return;
+    if(!sample || targetSlug==='dot') return; // Dot Kairat (GPT) отвечает сам, из своей сессии
     const title = roleTitle(targetSlug);
     if(targetSlug==='general'){
       try{
