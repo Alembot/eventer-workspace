@@ -733,10 +733,11 @@ function dayBounds(offsetDays){
 // ---------- Идеи и напоминания «Вернуться» (решение Кайрата 07.11.2026) ----------
 // Идея = запись Контекста с idea:true; поля ideaTitle, ideaStatus, remindAt (дата «Вернуться»), project.
 const IDEA_STATUSES = ['новая','думаем','проверяем','на будущее','в работе','отказались'];
-const IDEA_CLOSED = ['в работе','отказались'];
 function ideaStatusOf(v){ const s = v.ideaStatus || 'новая'; return s==='идея' ? 'новая' : s; }
 function isRemindDue(v){ return !!v.remindAt && v.remindAt < dayBounds(1); }
-function ideaDue(v){ return !IDEA_CLOSED.includes(ideaStatusOf(v)) && isRemindDue(v); }
+// Открытая идея — не в архиве и не «отказались»; «в работе» остаётся в списке
+function ideaOpen(v){ return !v.archived && ideaStatusOf(v)!=='отказались'; }
+function ideaDue(v){ return ideaOpen(v) && isRemindDue(v); }
 function noteDue(v){ return isRemindDue(v); }
 function isoDate(ts){ const d = new Date(ts); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 function ideaTitleOf(v){ return v.ideaTitle || splitRecordText(v.text).title || 'Без названия'; }
@@ -744,8 +745,9 @@ function ideaTitleOf(v){ return v.ideaTitle || splitRecordText(v.text).title || 
 function renderIdeas(panel){
   if(!db){ panel.innerHTML = '<div class="empty">База данных недоступна в этом окне.</div>'; return; }
   const admin = isAdmin();
-  let mode = 'due'; // due | open | closed
+  let showArchive = false;
   const openSet = new Set();
+  const deleteArmed = new Set();
   panel.innerHTML = `
     <div class="card">
       ${admin ? `<div class="side-card-head"><div class="modal-label">Новая идея</div><button class="side-add-btn" id="toggleAddIdea" title="Записать идею">+</button></div>
@@ -760,70 +762,65 @@ function renderIdeas(panel){
         <input type="date" id="newIdeaRemind" lang="ru-RU"/>
         <button class="btn" id="addIdea">Записать идею</button>
       </div>` : ''}
-      <div class="task-toolbar" style="margin-top:6px">
-        <div class="yeartabs" id="ideaTabs" style="margin-bottom:0"></div>
-      </div>
-      <div id="ideaList"><div class="empty">Загрузка…</div></div>
+      <div id="ideaList" style="margin-top:6px"><div class="empty">Загрузка…</div></div>
     </div>`;
   const col = db.collection('context');
   const listEl = panel.querySelector('#ideaList');
-  const tabsEl = panel.querySelector('#ideaTabs');
   let docs = [];
 
   function draw(){
-    const open = docs.filter(d=> !IDEA_CLOSED.includes(ideaStatusOf(d.v)));
-    const due = open.filter(d=> ideaDue(d.v));
-    const closed = docs.filter(d=> IDEA_CLOSED.includes(ideaStatusOf(d.v)));
-    tabsEl.innerHTML = [['due','Пора вернуться',due.length],['open','Все идеи',open.length],['closed','В работе и отказались',closed.length]]
-      .map(([k,l,n])=>`<button data-m="${k}" class="${mode===k?'active':''}">${l} ${n}</button>`).join('');
-    const shown = mode==='due' ? due : mode==='open' ? open : closed;
-    if(!shown.length){
-      listEl.innerHTML = `<div class="empty">${mode==='due' ? 'Сегодня возвращаться не к чему.' : 'Идей нет.'}</div>`;
-      return;
-    }
-    let html = '';
-    DIRECTIONS.forEach(dir=>{
-      const inDir = shown.filter(d=> d.v.direction===dir.slug);
-      if(!inDir.length) return;
-      html += `<div class="idea-group"><h3>${dir.name}</h3>`;
-      const projects = [...new Set(inDir.map(d=> d.v.project || ''))].sort((a,b)=> (a?0:1)-(b?0:1) || a.localeCompare(b,'ru'));
-      projects.forEach(pr=>{
-        const items = inDir.filter(d=> (d.v.project||'')===pr)
-          .sort((a,b)=> (ideaDue(b.v)?1:0)-(ideaDue(a.v)?1:0) || (a.v.remindAt||Infinity)-(b.v.remindAt||Infinity));
-        if(projects.length>1 || pr) html += `<div class="idea-proj">${pr ? escHtml(pr) : 'Без проекта'}</div>`;
-        html += `<div class="list">` + items.map(({id,v})=>{
-          const st = ideaStatusOf(v);
-          const isDue = ideaDue(v);
-          const exp = openSet.has(id);
-          const body = splitRecordText(v.text);
-          const bodyText = (v.ideaTitle ? [body.title, body.body].filter(Boolean).join('\n\n') : body.body);
-          return `<div class="item record-item" data-id="${id}" style="flex-direction:column;align-items:stretch;${isDue?'border-color:var(--bad)':''}">
-            <div class="record-head" data-id="${id}" style="display:flex;align-items:center;gap:8px;cursor:pointer;flex-wrap:wrap">
-              <button class="task-exp" data-id="${id}">${exp?'▾':'▸'}</button>
-              <div class="txt" style="flex:1;min-width:180px">${escHtml(ideaTitleOf(v))}</div>
-              <span class="pill">${st}</span>
-              <span class="pill ${isDue?'bad':''}">${v.remindAt ? (isDue?'Пора вернуться · ':'Вернуться ')+fmtDue(v.remindAt) : 'без даты'}</span>
-            </div>
-            ${exp ? `${bodyText ? `<div class="record-body" style="padding:8px 0 4px 30px;color:var(--fg-muted);white-space:pre-wrap">${escHtml(bodyText)}</div>` : ''}
-            ${admin ? `<div class="idea-ctrl" data-id="${id}">
-              <select class="idea-st">${IDEA_STATUSES.map(s=>`<option ${s===st?'selected':''}>${s}</option>`).join('')}</select>
-              <label style="font-size:12px;color:var(--fg-muted)">Вернуться</label>
-              <input type="date" class="idea-date" lang="ru-RU" value="${v.remindAt?isoDate(v.remindAt):''}"/>
-              ${st!=='в работе' ? `<button class="btn ghost idea-task" style="padding:6px 12px;font-size:12.5px">Взять в работу</button>` : ''}
-            </div>` : ''}` : ''}
-          </div>`;
-        }).join('') + `</div>`;
-      });
-      html += `</div>`;
-    });
+    // Один список без группировки: сначала те, к которым пора вернуться, дальше по дате, без даты — в конце.
+    // Направление и проект — метками в самой идее (решение Кайрата 07.11.2026).
+    const open = docs.filter(d=> ideaOpen(d.v));
+    const archived = docs.filter(d=> !ideaOpen(d.v));
+    const order = (a,b)=> (ideaDue(b.v)?1:0)-(ideaDue(a.v)?1:0) || (a.v.remindAt||Infinity)-(b.v.remindAt||Infinity) || (b.v.ts||0)-(a.v.ts||0);
+    const shown = (showArchive ? archived : open).slice().sort(order);
+    let html = shown.length ? `<div class="list">` + shown.map(({id,v})=>{
+      const st = v.archived ? 'в архиве' : ideaStatusOf(v);
+      const isDue = ideaDue(v);
+      const exp = openSet.has(id);
+      const armed = deleteArmed.has(id);
+      const dirObj = DIRECTIONS.find(d=>d.slug===v.direction);
+      const body = splitRecordText(v.text);
+      const bodyText = (v.ideaTitle ? [body.title, body.body].filter(Boolean).join('\n\n') : body.body);
+      return `<div class="item record-item" data-id="${id}" style="flex-direction:column;align-items:stretch;${isDue?'border-color:var(--bad)':''}">
+        <div class="record-head" data-id="${id}" style="display:flex;align-items:center;gap:8px;cursor:pointer;flex-wrap:wrap">
+          <button class="task-exp" data-id="${id}">${exp?'▾':'▸'}</button>
+          <div class="txt" style="flex:1;min-width:180px">${escHtml(ideaTitleOf(v))}</div>
+          <span class="pill">${dirObj?dirObj.name:escHtml(v.direction||'')}${v.project?' · '+escHtml(v.project):''}</span>
+          <span class="pill">${st}</span>
+          <span class="pill ${isDue?'bad':''}">${v.remindAt ? (isDue?'Пора вернуться · ':'Вернуться ')+fmtDue(v.remindAt) : 'без даты'}</span>
+        </div>
+        ${exp ? `${bodyText ? `<div class="record-body" style="padding:8px 0 4px 30px;color:var(--fg-muted);white-space:pre-wrap">${escHtml(bodyText)}</div>` : ''}
+        ${admin ? `<div class="idea-ctrl" data-id="${id}">
+          ${v.archived ? `<button class="btn ghost idea-unarch" style="padding:6px 12px;font-size:12.5px">Вернуть из архива</button>` : `
+          <select class="idea-st">${IDEA_STATUSES.map(s=>`<option ${s===st?'selected':''}>${s}</option>`).join('')}</select>
+          <label style="font-size:12px;color:var(--fg-muted)">Вернуться</label>
+          <input type="date" class="idea-date" lang="ru-RU" value="${v.remindAt?isoDate(v.remindAt):''}"/>
+          ${st!=='в работе' ? `<button class="btn ghost idea-task" style="padding:6px 12px;font-size:12.5px">Взять в работу</button>` : ''}
+          <button class="btn ghost idea-arch" style="padding:6px 12px;font-size:12.5px">В архив</button>`}
+          <button class="modal-delete idea-del" style="margin-left:auto;${armed?'background:var(--bad);color:#fff':''}">${armed?'Удалить навсегда?':'Удалить'}</button>
+        </div>` : ''}` : ''}
+      </div>`;
+    }).join('') + `</div>` : `<div class="empty">${showArchive ? 'Архив пуст.' : 'Идей пока нет.'}</div>`;
+    html += `<div style="margin-top:12px;text-align:center"><button class="btn ghost" id="ideaArchToggle" style="font-size:12.5px;padding:6px 12px">${showArchive ? '← К идеям' : 'Архив · '+archived.length}</button></div>`;
     listEl.innerHTML = html;
+    listEl.querySelector('#ideaArchToggle').addEventListener('click', ()=>{ showArchive = !showArchive; draw(); });
     listEl.querySelectorAll('.record-head').forEach(row=>{
       row.addEventListener('click', ()=>{ const id=row.dataset.id; if(openSet.has(id)) openSet.delete(id); else openSet.add(id); draw(); });
     });
     listEl.querySelectorAll('.idea-ctrl').forEach(ctrl=>{
       const id = ctrl.dataset.id;
-      ctrl.querySelector('.idea-st').addEventListener('change', e=> col.doc(id).update({ ideaStatus: e.target.value, ideaUpdated: Date.now() }).catch(()=>{}));
-      ctrl.querySelector('.idea-date').addEventListener('change', e=> col.doc(id).update({ remindAt: e.target.value ? new Date(e.target.value+'T00:00:00').getTime() : null, ideaUpdated: Date.now() }).catch(()=>{}));
+      const on = (sel, ev, fn)=>{ const el = ctrl.querySelector(sel); if(el) el.addEventListener(ev, fn); };
+      on('.idea-st','change', e=> col.doc(id).update({ ideaStatus: e.target.value, ideaUpdated: Date.now() }).catch(()=>{}));
+      on('.idea-date','change', e=> col.doc(id).update({ remindAt: e.target.value ? new Date(e.target.value+'T00:00:00').getTime() : null, ideaUpdated: Date.now() }).catch(()=>{}));
+      on('.idea-arch','click', ()=>{ openSet.delete(id); col.doc(id).update({ archived:true, ideaUpdated: Date.now() }).catch(()=>{}); });
+      on('.idea-unarch','click', ()=>{ col.doc(id).update({ archived:false, ideaUpdated: Date.now() }).catch(()=>{}); });
+      on('.idea-del','click', ()=>{
+        if(deleteArmed.has(id)){ deleteArmed.delete(id); openSet.delete(id); col.doc(id).delete().catch(()=>{}); return; }
+        deleteArmed.add(id); draw();
+        setTimeout(()=>{ if(deleteArmed.has(id)){ deleteArmed.delete(id); draw(); } }, 3000);
+      });
       const tb = ctrl.querySelector('.idea-task');
       if(tb) tb.addEventListener('click', async ()=>{
         const d = docs.find(x=>x.id===id); if(!d) return;
@@ -839,10 +836,8 @@ function renderIdeas(panel){
       });
     });
   }
-  tabsEl.addEventListener('click', e=>{ const b=e.target.closest('button[data-m]'); if(!b) return; mode=b.dataset.m; draw(); });
   const unsub = col.where('idea','==',true).onSnapshot(snap=>{
     docs = snap.docs.map(d=>({ id:d.id, v:d.data() }));
-    if(mode==='due' && !docs.some(d=> ideaDue(d.v))) mode = 'open';
     draw();
   }, err=>{ listEl.innerHTML = `<div class="empty">Нет доступа на чтение (${err.code}).</div>`; });
   unsubs['ideas'] = unsub;
@@ -863,7 +858,7 @@ function renderIdeas(panel){
     try{
       await col.add({ text: body ? title+'\n\n'+body : title, direction, project, done:false, idea:true, ideaTitle:title, ideaStatus:'новая', ideaUpdated: now, remindAt: rv ? new Date(rv+'T00:00:00').getTime() : null, ts: now });
       tIn.value=''; panel.querySelector('#newIdeaText').value=''; panel.querySelector('#newIdeaProject').value=''; panel.querySelector('#newIdeaRemind').value='';
-      form.style.display='none'; mode='open';
+      form.style.display='none'; showArchive=false;
     }catch(e){ alert('Не удалось сохранить: '+(e&&e.code||e)); }
   });
 }
@@ -1129,18 +1124,11 @@ function renderHome(panel){
   let ideaDocsHome = [];
   let noteDocsCache = [];
   function renderRemind(){
-    const ideasOpen = ideaDocsHome.filter(d=> !IDEA_CLOSED.includes(ideaStatusOf(d.data)));
+    const ideasOpen = ideaDocsHome.filter(d=> ideaOpen(d.data));
     const ideasDue = ideasOpen.filter(d=> ideaDue(d.data)).length;
-    const notesDue = noteDocsCache.filter(d=> noteDue(d.data)).length;
     remindEl.innerHTML = `
-      <button class="remind-btn ${ideasDue?'has-due':''}" id="homeIdeasBtn" title="Открыть идеи">Идеи<span class="cnt">${ideasOpen.length}</span>${ideasDue?`<span class="due">${ideasDue}</span>`:''}</button>
-      <button class="remind-btn ${notesDue?'has-due':''}" id="homeNotesBtn" title="К заметкам">Заметки<span class="cnt">${noteDocsCache.length}</span>${notesDue?`<span class="due">${notesDue}</span>`:''}</button>`;
+      <button class="remind-btn ${ideasDue?'has-due':''}" id="homeIdeasBtn" title="Открыть идеи">Идеи<span class="cnt">${ideasOpen.length}</span>${ideasDue?`<span class="due">${ideasDue}</span>`:''}</button>`;
     remindEl.querySelector('#homeIdeasBtn').addEventListener('click', ()=>{ location.hash = '#ideas'; });
-    remindEl.querySelector('#homeNotesBtn').addEventListener('click', ()=>{
-      const card = panel.querySelector('#homeNotesCard'); if(!card) return;
-      card.scrollIntoView({ behavior:'smooth', block:'center' });
-      card.classList.remove('flash'); void card.offsetWidth; card.classList.add('flash');
-    });
   }
   const unsubIdeasHome = db.collection('context').where('idea','==',true).onSnapshot(snap=>{
     ideaDocsHome = snap.docs.map(d=>({ id:d.id, data:d.data() }));
