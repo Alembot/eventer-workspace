@@ -570,7 +570,10 @@ function parseRoute(){
   if(h==='team'){ state.dir = 'team'; state.tab = null; return; }
   if(h==='ideas'){ state.dir = 'ideas'; state.tab = null; return; }
   const [dir, tab] = h.split('/');
-  state.dir = DIRECTIONS.find(d=>d.slug===dir) ? dir : 'academy';
+  // Неизвестный или пустой адрес (в т.ч. #access_token=… после входа по ссылке) — на Главную,
+  // а не в Академию (решение Кайрата 07.11.2026: приложение всегда открывается с Главной)
+  if(!DIRECTIONS.find(d=>d.slug===dir)){ state.dir = 'home'; state.tab = null; return; }
+  state.dir = dir;
   state.tab = tab || 'tasks';
 }
 window.addEventListener('hashchange', ()=>{ parseRoute(); render(); });
@@ -3270,7 +3273,16 @@ async function boot(){
     }
   });
 }
-if(!location.hash) location.hash = '#home';
+// Запуск приложения — с Главной (решение Кайрата 07.11.2026). Пустой адрес → Главная. Приложение
+// с иконки (standalone) всегда стартует с Главной, кроме перехода из уведомления (#…/messages).
+// Хеш входа по ссылке (#access_token=…) не трогаем — его читает Supabase; parseRoute и так ведёт на Главную.
+{
+  const h0 = (location.hash||'').replace('#','');
+  const isAuthHash = /access_token=|error=|type=recovery/.test(h0);
+  const standalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone === true;
+  if(!h0) location.hash = '#home';
+  else if(!isAuthHash && standalone && !/\/messages$/.test(h0)) history.replaceState(null, '', location.pathname + location.search + '#home');
+}
 boot();
 </script>
 
