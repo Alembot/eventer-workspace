@@ -252,6 +252,14 @@ body.modal-open{position:fixed;left:0;right:0;overflow:hidden}
 .msg-home-item .msg-more{font-size:12.5px;margin-top:6px;white-space:pre-wrap;color:var(--fg)}
 .msg-home-item .msg-acts{display:flex;gap:6px;margin-top:6px}
 .msg-home-item .msg-acts .btn{padding:4px 10px;font-size:12.5px;text-decoration:none}
+.scout-cats{display:flex;gap:6px;flex-wrap:wrap;margin:4px 0 10px}
+.scout-cats button{border:1px solid var(--border);background:var(--surface-2);color:var(--fg);border-radius:16px;padding:4px 10px;font-size:12.5px}
+.scout-cats button.on{border-color:var(--accent);color:var(--accent)}
+.scout-item{padding:10px 0;border-bottom:1px solid var(--border)}
+.scout-item .scout-h,.scout-item .scout-k{color:var(--fg-muted);font-size:12.5px}
+.scout-item .scout-why{font-size:13px;margin-top:4px}
+.scout-item .msg-acts{display:flex;gap:6px;margin-top:8px}
+.scout-item .msg-acts .btn{padding:5px 12px;font-size:13px;text-decoration:none}
 .msg-home-item .who{display:flex;align-items:center;gap:6px;font-size:13px}
 .msg-home-item .snippet{font-size:12.5px;color:var(--fg-muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* Pull-to-refresh: a spinner that tracks a downward swipe from the top of a
@@ -502,7 +510,7 @@ function renderHomeMsgCard(el){
       <div class="who"><b>${esc(m.title||m.text)}</b></div>
       <div class="snippet">${esc(m.author||'')}${m.why?' · '+esc(m.why):''}</div>
       ${msgOpen.has(m.id) && m.text && m.title ? `<div class="msg-more">${esc(m.text)}</div>` : ''}
-      <div class="msg-acts">${m.url?`<a class="btn" href="${esc(m.url)}" target="_blank" rel="noopener">Открыть</a>`:''}<button class="btn ghost" data-done="${esc(m.id)}">Готово</button></div>
+      <div class="msg-acts">${m.action==='scout'?`<button class="btn" data-scout="1">Открыть</button>`:(m.url?`<a class="btn" href="${esc(m.url)}" target="_blank" rel="noopener">Открыть</a>`:'')}<button class="btn ghost" data-done="${esc(m.id)}">Готово</button></div>
     </div>`).join('')}</div>`;
   el.querySelectorAll('.msg-home-item').forEach(it=>{
     it.addEventListener('click', e=>{
@@ -510,6 +518,7 @@ function renderHomeMsgCard(el){
       const id = it.dataset.id; msgOpen.has(id) ? msgOpen.delete(id) : msgOpen.add(id); renderHomeMsgCard(el);
     });
   });
+  el.querySelectorAll('[data-scout]').forEach(b=> b.addEventListener('click', openScoutSheet));
   el.querySelectorAll('[data-done]').forEach(b=>{
     b.addEventListener('click', ()=>{
       const id = b.dataset.done;
@@ -518,6 +527,48 @@ function renderHomeMsgCard(el){
       if(db) db.collection('messages').doc(id).update({ status:'done', doneAt: Date.now() }).catch(()=>{});
     });
   });
+}
+// «Новые источники Афиши» прямо в Workspace (13.11.2026): решение «Подключить / Нет» без перехода в базу
+// (на iPhone ссылка из приложения открывалась в Chrome). Данные — функция workspace-scout проекта Афиши,
+// вход — по сессии Workspace, пускает только редакторов витрины.
+const SCOUT_FN = 'https://quzgkhzkrhdlyztzbgcc.supabase.co/functions/v1/workspace-scout';
+async function scoutCall(method, body){
+  const { data:{ session } } = await sb.auth.getSession();
+  if(!session) throw new Error('Нужно войти в Workspace');
+  const r = await fetch(SCOUT_FN, { method, headers:{ 'content-type':'application/json', 'x-ws-token': session.access_token }, body: body?JSON.stringify(body):undefined });
+  const j = await r.json().catch(()=>({}));
+  if(!r.ok) throw new Error(j.error||('Ошибка '+r.status));
+  return j;
+}
+async function openScoutSheet(){
+  const esc = v=> String(v??'').replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const bg = document.createElement('div'); bg.className='modal-backdrop';
+  bg.innerHTML = `<div class="modal-card"><div class="modal-head"><div><div class="modal-label">Новые источники Афиши</div><div class="scout-sub" style="font-size:12.5px;color:var(--fg-muted);margin-top:4px">Аккаунты, которых нет у нас и у конкурентов. «Подключить» — робот начнёт читать их посты.</div></div><button class="modal-close" aria-label="Закрыть">×</button></div><div class="modal-body"><div class="empty">Загрузка…</div></div></div>`;
+  document.body.appendChild(bg);
+  const close = ()=> bg.remove();
+  bg.querySelector('.modal-close').onclick = close; bg.addEventListener('click', e=>{ if(e.target===bg) close(); });
+  const body = bg.querySelector('.modal-body');
+  let items = [], cat = 'Все';
+  function draw(){
+    if(!items.length){ body.innerHTML = `<div class="empty">Всё разобрано.</div>`; return; }
+    const cats = ['Все', ...new Set(items.map(x=> x.category||'Другое'))];
+    const view = cat==='Все' ? items : items.filter(x=> (x.category||'Другое')===cat);
+    body.innerHTML = `<div class="scout-cats">${cats.map(c=>`<button class="${c===cat?'on':''}" data-cat="${esc(c)}">${esc(c)}${c==='Все'?' '+items.length:''}</button>`).join('')}</div>` +
+      view.map(x=>`<div class="scout-item" data-h="${esc(x.handle)}">
+        <div><b>${esc(x.title||'@'+x.handle)}</b> <span class="scout-h">@${esc(x.handle)}</span></div>
+        <div class="scout-k">${esc(x.kind||'')} · ${esc(x.category||'')} · упомянули ${x.mentions} раз(а)</div>
+        <div class="scout-why">${esc(x.why||'')}</div>
+        <div class="msg-acts"><button class="btn" data-a="1">Подключить</button><button class="btn ghost" data-a="0">Нет</button><a class="btn ghost" href="https://www.instagram.com/${esc(x.handle)}/" target="_blank" rel="noopener">Instagram</a></div>
+      </div>`).join('');
+    body.querySelectorAll('[data-cat]').forEach(b=> b.onclick = ()=>{ cat = b.dataset.cat; draw(); });
+    body.querySelectorAll('.scout-item').forEach(it=> it.querySelectorAll('[data-a]').forEach(b=> b.onclick = async ()=>{
+      const h = it.dataset.h; it.querySelectorAll('button').forEach(z=> z.disabled = true);
+      try{ await scoutCall('POST', { handle:h, approve: b.dataset.a==='1' }); items = items.filter(x=> x.handle!==h); draw(); }
+      catch(e){ it.querySelectorAll('button').forEach(z=> z.disabled = false); alert('Не сохранилось: '+e.message); }
+    }));
+  }
+  try{ items = (await scoutCall('GET')).items || []; draw(); }
+  catch(e){ body.innerHTML = `<div class="empty">Не загрузилось: ${esc(e.message)}</div>`; }
 }
 // Permanent, never-unsubscribed listener: whenever any device's write (or a
 // realtime pull from the cloud) touches the messages collection, refresh the
