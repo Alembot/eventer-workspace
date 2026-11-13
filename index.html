@@ -3413,7 +3413,8 @@ async function checkAppVersion(){
     const r = await fetch('version.json?t=' + Date.now(), { cache: 'no-store' });
     if(!r.ok) return;
     const j = await r.json();
-    if(j && j.v && j.v !== APP_VERSION) location.reload();
+    // один раз на новую версию — без бесконечной перезагрузки, если страница ещё в кеше
+    if(j && j.v && j.v !== APP_VERSION && localStorage.getItem('ewReloadedFor') !== j.v){ localStorage.setItem('ewReloadedFor', j.v); location.reload(); }
   }catch(e){}
 }
 document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState === 'visible') checkAppVersion(); });
