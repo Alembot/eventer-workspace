@@ -517,7 +517,7 @@ function renderHomeMsgCard(el){
       <div class="who"><b>${esc(m.title||m.text)}</b></div>
       <div class="snippet">${esc(m.author||'')}${m.why?' · '+esc(m.why):''}</div>
       ${msgOpen.has(m.id) && m.text && m.title ? `<div class="msg-more">${esc(m.text)}</div>` : ''}
-      <div class="msg-acts">${m.action==='scout'?`<button class="btn" data-scout="1">Открыть</button>`:(m.action==='events'||m.action==='reels')?`<button class="btn" data-approve="${esc(m.action)}">Открыть</button>`:(m.url?`<a class="btn" href="${esc(m.url)}" target="_blank" rel="noopener">Открыть</a>`:'')}<button class="btn ghost" data-done="${esc(m.id)}">Готово</button></div>
+      <div class="msg-acts">${m.action==='scout'?`<button class="btn" data-scout="1">Открыть</button>`:(m.action==='events'||m.action==='reels'||m.action==='experiences')?`<button class="btn" data-approve="${esc(m.action)}">Открыть</button>`:(m.url?`<a class="btn" href="${esc(m.url)}" target="_blank" rel="noopener">Открыть</a>`:'')}<button class="btn ghost" data-done="${esc(m.id)}">Готово</button></div>
     </div>`).join('')}</div>`;
   el.querySelectorAll('.msg-home-item').forEach(it=>{
     it.addEventListener('click', e=>{
@@ -590,7 +590,7 @@ async function approveCall(method, kind, body){
 }
 async function openApproveSheet(kind){
   const esc = v=> String(v??'').replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-  const title = kind==='events' ? 'События для витрины' : 'Reels для витрины';
+  const title = kind==='events' ? 'События для витрины' : kind==='experiences' ? 'Впечатления для витрины' : 'Reels для витрины';
   const bg = document.createElement('div'); bg.className='modal-backdrop';
   bg.innerHTML = `<div class="modal-card"><div class="modal-head"><div><div class="modal-label">${title}</div><div style="font-size:12.5px;color:var(--fg-muted);margin-top:4px">Робот уже отобрал. Вам — только «Да» или «Нет»: на полки попадает лишь то, что вы взяли.</div></div><button class="modal-close" aria-label="Закрыть">×</button></div><div class="modal-body"><div class="empty">Загрузка…</div></div></div>`;
   document.body.appendChild(bg);
@@ -604,7 +604,8 @@ async function openApproveSheet(kind){
       ${x.video?`<video class="ap-media" src="${esc(x.video)}" poster="${esc(x.image||'')}" controls playsinline preload="none"></video>`:(x.image?`<img class="ap-media" src="${esc(x.image)}" alt="" loading="lazy">`:'')}
       <div class="ap-t">${esc(x.title)}</div>
       ${x.sub?`<div class="ap-s">${esc(x.sub)}</div>`:''}
-      ${x.why?`<div class="ap-w">Робот: ${esc(x.why)}</div>`:''}
+      ${x.about?`<div class="ap-w">${esc(x.about)}</div>`:''}
+      ${x.why?`<div class="ap-w" style="color:var(--fg-muted)">Робот: ${esc(x.why)}</div>`:''}
       <div class="msg-acts"><button class="btn" data-a="1">Да</button><button class="btn ghost" data-a="0">Нет</button>${x.link?`<a class="btn ghost" href="${esc(x.link)}" target="_blank" rel="noopener">Подробнее</a>`:''}</div>
     </div>`).join('');
     body.querySelectorAll('.ap-item').forEach(it=> it.querySelectorAll('[data-a]').forEach(b=> b.onclick = async ()=>{
