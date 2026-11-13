@@ -267,6 +267,9 @@ body.modal-open{position:fixed;left:0;right:0;overflow:hidden}
 .ap-item .ap-w{font-size:12.5px;margin-top:4px}
 .ap-item .msg-acts{display:flex;gap:6px;margin-top:8px}
 .ap-item .msg-acts .btn{padding:6px 14px;font-size:13px;text-decoration:none}
+.mg-pair{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.mg-side{background:var(--surface-2);border-radius:10px;padding:8px 10px;min-width:0;overflow-wrap:anywhere}
+.mg-l{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--fg-muted);margin-bottom:3px}
 .msg-home-item .who{display:flex;align-items:center;gap:6px;font-size:13px}
 .msg-home-item .snippet{font-size:12.5px;color:var(--fg-muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* Pull-to-refresh: a spinner that tracks a downward swipe from the top of a
@@ -517,7 +520,7 @@ function renderHomeMsgCard(el){
       <div class="who"><b>${esc(m.title||m.text)}</b></div>
       <div class="snippet">${esc(m.author||'')}${m.why?' · '+esc(m.why):''}</div>
       ${msgOpen.has(m.id) && m.text && m.title ? `<div class="msg-more">${esc(m.text)}</div>` : ''}
-      <div class="msg-acts">${m.action==='scout'?`<button class="btn" data-scout="1">Открыть</button>`:(m.action==='events'||m.action==='reels'||m.action==='experiences')?`<button class="btn" data-approve="${esc(m.action)}">Открыть</button>`:(m.url?`<a class="btn" href="${esc(m.url)}" target="_blank" rel="noopener">Открыть</a>`:'')}<button class="btn ghost" data-done="${esc(m.id)}">Готово</button></div>
+      <div class="msg-acts">${m.action==='scout'?`<button class="btn" data-scout="1">Открыть</button>`:m.action==='merges'?`<button class="btn" data-merges="1">Открыть</button>`:(m.action==='events'||m.action==='reels'||m.action==='experiences')?`<button class="btn" data-approve="${esc(m.action)}">Открыть</button>`:(m.url?`<a class="btn" href="${esc(m.url)}" target="_blank" rel="noopener">Открыть</a>`:'')}<button class="btn ghost" data-done="${esc(m.id)}">Готово</button></div>
     </div>`).join('')}</div>`;
   el.querySelectorAll('.msg-home-item').forEach(it=>{
     it.addEventListener('click', e=>{
@@ -526,6 +529,7 @@ function renderHomeMsgCard(el){
     });
   });
   el.querySelectorAll('[data-scout]').forEach(b=> b.addEventListener('click', openScoutSheet));
+  el.querySelectorAll('[data-merges]').forEach(b=> b.addEventListener('click', openMergeSheet));
   el.querySelectorAll('[data-approve]').forEach(b=> b.addEventListener('click', ()=> openApproveSheet(b.dataset.approve)));
   el.querySelectorAll('[data-done]').forEach(b=>{
     b.addEventListener('click', ()=>{
@@ -616,6 +620,46 @@ async function openApproveSheet(kind){
   }
   try{ items = (await approveCall('GET', kind)).items || []; draw(); }
   catch(e){ body.innerHTML = `<div class="empty">Не загрузилось: ${esc(e.message)}</div>`; }
+}
+// Спорные склейки Eventer Data Base (13.11.2026): пары карточек «одно и то же или разные?».
+// Пары лежат в rows (collection 'merge_review'); решение Кайрата пишется в data.decision ('same' / 'different'),
+// дальше Claude применяет решения в Eventer Data Base.
+async function openMergeSheet(){
+  const esc = v=> String(v??'').replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const bg = document.createElement('div'); bg.className='modal-backdrop';
+  bg.innerHTML = `<div class="modal-card"><div class="modal-head"><div><div class="modal-label">Одно и то же место?</div><div style="font-size:12.5px;color:var(--fg-muted);margin-top:4px">Робот не уверен, одна это площадка или разные. «Одно и то же» — склеим в одну карточку, «Разные» — оставим две.</div></div><button class="modal-close" aria-label="Закрыть">×</button></div><div class="modal-body"><div class="empty">Загрузка…</div></div></div>`;
+  document.body.appendChild(bg);
+  const close = ()=> bg.remove();
+  bg.querySelector('.modal-close').onclick = close; bg.addEventListener('click', e=>{ if(e.target===bg) close(); });
+  const body = bg.querySelector('.modal-body');
+  let items = [];
+  const side = (x, label)=> `<div class="mg-side"><div class="mg-l">${esc(label)}</div><div class="ap-t">${esc(x.name||'—')}</div>
+    <div class="ap-s">${esc([x.city, x.addr].filter(Boolean).join(', ')||'адрес не указан')}</div>
+    ${x.cat?`<div class="ap-s">${esc(x.cat)}${x.cap?' · до '+esc(x.cap)+' гостей':''}</div>`:''}
+    ${x.ig?`<div class="ap-s">@${esc(String(x.ig).replace(/^.*instagram\.com\//,'').replace(/[/?].*$/,''))}</div>`:''}</div>`;
+  function draw(){
+    if(!items.length){ body.innerHTML = `<div class="empty">Всё разобрано. Спасибо!</div>`; return; }
+    body.innerHTML = `<div style="font-size:12.5px;color:var(--fg-muted);margin:2px 0 8px">Осталось: ${items.length}</div>` + items.map(r=>{ const x = r.data;
+      return `<div class="ap-item" data-id="${esc(r.id)}">
+        <div class="mg-pair">${side(x.a||{}, 'В базе ('+(x.a&&x.a.src||'')+')')}${side(x.b||{}, 'Из Eventer')}</div>
+        <div class="ap-w" style="color:var(--fg-muted)">${x.kind==='склейка по Instagram'?'Общий Instagram, адреса похожи не до конца':'Одинаковое название'}${x.sim?' · сходство адресов '+Math.round(x.sim*100)+'%':''}</div>
+        <div class="msg-acts"><button class="btn" data-a="same">Одно и то же</button><button class="btn ghost" data-a="different">Разные</button><a class="btn ghost" href="https://2gis.kz/almaty/search/${encodeURIComponent((x.b&&x.b.name)||'')}" target="_blank" rel="noopener">2ГИС</a></div>
+      </div>`; }).join('');
+    body.querySelectorAll('.ap-item').forEach(it=> it.querySelectorAll('[data-a]').forEach(b=> b.onclick = async ()=>{
+      const id = it.dataset.id; const r = items.find(z=> z.id===id); it.querySelectorAll('button').forEach(z=> z.disabled = true);
+      try{
+        const data = Object.assign({}, r.data, { decision: b.dataset.a, decided_at: Date.now() });
+        const { error } = await sb.from('rows').update({ data, ts: Date.now() }).eq('collection','merge_review').eq('id', id);
+        if(error) throw error;
+        items = items.filter(z=> z.id!==id); draw();
+      }catch(e){ it.querySelectorAll('button').forEach(z=> z.disabled = false); alert('Не сохранилось: '+(e.message||e)); }
+    }));
+  }
+  try{
+    const { data, error } = await sb.from('rows').select('id,data').eq('collection','merge_review');
+    if(error) throw error;
+    items = (data||[]).filter(r=> !r.data.decision).sort((p,q)=> (p.data.rid||0)-(q.data.rid||0)); draw();
+  }catch(e){ body.innerHTML = `<div class="empty">Не загрузилось: ${esc(e.message||e)}</div>`; }
 }
 // Permanent, never-unsubscribed listener: whenever any device's write (or a
 // realtime pull from the cloud) touches the messages collection, refresh the
@@ -3407,7 +3451,7 @@ boot();
 
 // Автообновление (13.11.2026): установленное на iPhone приложение держит старую версию страницы.
 // При каждом возврате в приложение сверяем версию с сервером и перезагружаемся, если вышла новая.
-const APP_VERSION = '202611131742';
+const APP_VERSION = '202611132035';
 async function checkAppVersion(){
   try{
     const r = await fetch('version.json?t=' + Date.now(), { cache: 'no-store' });
