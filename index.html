@@ -3404,6 +3404,20 @@ async function boot(){
   else if(!isAuthHash && standalone && !/\/messages$/.test(h0)) history.replaceState(null, '', location.pathname + location.search + '#home');
 }
 boot();
+
+// Автообновление (13.11.2026): установленное на iPhone приложение держит старую версию страницы.
+// При каждом возврате в приложение сверяем версию с сервером и перезагружаемся, если вышла новая.
+const APP_VERSION = '202611131742';
+async function checkAppVersion(){
+  try{
+    const r = await fetch('version.json?t=' + Date.now(), { cache: 'no-store' });
+    if(!r.ok) return;
+    const j = await r.json();
+    if(j && j.v && j.v !== APP_VERSION) location.reload();
+  }catch(e){}
+}
+document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState === 'visible') checkAppVersion(); });
+checkAppVersion();
 </script>
 
 </body></html>
