@@ -248,6 +248,10 @@ body.modal-open{position:fixed;left:0;right:0;overflow:hidden}
 .sheet-chip.has-msg::after{content:'';position:absolute;top:4px;right:6px;width:7px;height:7px;border-radius:50%;background:var(--bad)}
 .msg-home-item{padding:8px 0;border-bottom:1px solid var(--border);cursor:pointer}
 .msg-home-item:last-child{border-bottom:none}
+.msg-home-item .snippet{white-space:normal}
+.msg-home-item .msg-more{font-size:12.5px;margin-top:6px;white-space:pre-wrap;color:var(--fg)}
+.msg-home-item .msg-acts{display:flex;gap:6px;margin-top:6px}
+.msg-home-item .msg-acts .btn{padding:4px 10px;font-size:12.5px;text-decoration:none}
 .msg-home-item .who{display:flex;align-items:center;gap:6px;font-size:13px}
 .msg-home-item .snippet{font-size:12.5px;color:var(--fg-muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* Pull-to-refresh: a spinner that tracks a downward swipe from the top of a
@@ -457,7 +461,7 @@ function msgSeenKey(dirSlug){ return 'eventerMsgSeen_'+dirSlug; }
 function getUnreadMsgDirs(){
   const out = [];
   (typeof DIRS_WITH_FINANCE_AND_MESSAGES!=='undefined' ? DIRS_WITH_FINANCE_AND_MESSAGES : []).forEach(slug=>{
-    const msgs = lsRead('messages').filter(m=> m.direction===slug);
+    const msgs = lsRead('messages').filter(m=> m.direction===slug && m.forKairat && m.status!=='done');
     if(!msgs.length) return;
     const seen = parseInt(localStorage.getItem(msgSeenKey(slug))||'0', 10) || 0;
     const unseen = msgs.filter(m=> (m.ts||0) > seen);
@@ -484,21 +488,35 @@ function refreshUnreadBadges(){
   const homeCard = document.getElementById('homeMsgCard');
   if(homeCard) renderHomeMsgCard(homeCard);
 }
+// Лента «Мне» (13.11.2026, решение Кайрата): только то, где нужно его решение или действие.
+// Переписка менеджеров между собой в интерфейсе не показывается — она остаётся в базе для самих менеджеров.
+// Формат сообщения: forKairat:true, title (что сделать), author (от кого), why (зачем), url (кнопка «Открыть»), text (подробности).
+const msgOpen = new Set();
 function renderHomeMsgCard(el){
-  const unread = getUnreadMsgDirs();
-  const head = `<div class="side-card-head"><div class="modal-label">Сообщения</div></div>`;
-  if(!unread.length){ el.innerHTML = head + `<div class="empty">Новых сообщений нет.</div>`; return; }
-  el.innerHTML = head + `<div class="list">${unread.map(u=>{
-    const dir = (typeof DIRECTIONS!=='undefined' ? DIRECTIONS.find(d=>d.slug===u.slug) : null);
-    const who = (u.last.author||'').replace(/</g,'&lt;');
-    const snippet = (u.last.text||'').replace(/</g,'&lt;');
-    return `<div class="msg-home-item" data-dir="${u.slug}">
-      <div class="who"><b>${dir?dir.name:u.slug}</b><span class="to-tag">${u.count} нов.</span></div>
-      <div class="snippet">${who}: ${snippet}</div>
-    </div>`;
-  }).join('')}</div>`;
-  el.querySelectorAll('[data-dir]').forEach(elm=>{
-    elm.addEventListener('click', ()=>{ location.hash = '#'+elm.dataset.dir+'/messages'; });
+  const esc = v=> String(v??'').replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const list = lsRead('messages').filter(m=> m.forKairat && m.status!=='done').sort((a,b)=>(b.ts||0)-(a.ts||0));
+  const head = `<div class="side-card-head"><div class="modal-label">Мне${list.length?` · ${list.length}`:''}</div></div>`;
+  if(!list.length){ el.innerHTML = head + `<div class="empty">Ничего не ждёт вашего решения.</div>`; return; }
+  el.innerHTML = head + `<div class="list">${list.map(m=>`
+    <div class="msg-home-item" data-id="${esc(m.id)}">
+      <div class="who"><b>${esc(m.title||m.text)}</b></div>
+      <div class="snippet">${esc(m.author||'')}${m.why?' · '+esc(m.why):''}</div>
+      ${msgOpen.has(m.id) && m.text && m.title ? `<div class="msg-more">${esc(m.text)}</div>` : ''}
+      <div class="msg-acts">${m.url?`<a class="btn" href="${esc(m.url)}" target="_blank" rel="noopener">Открыть</a>`:''}<button class="btn ghost" data-done="${esc(m.id)}">Готово</button></div>
+    </div>`).join('')}</div>`;
+  el.querySelectorAll('.msg-home-item').forEach(it=>{
+    it.addEventListener('click', e=>{
+      if(e.target.closest('a,button')) return;
+      const id = it.dataset.id; msgOpen.has(id) ? msgOpen.delete(id) : msgOpen.add(id); renderHomeMsgCard(el);
+    });
+  });
+  el.querySelectorAll('[data-done]').forEach(b=>{
+    b.addEventListener('click', ()=>{
+      const id = b.dataset.done;
+      const arr = lsRead('messages').map(m=> m.id===id ? Object.assign({}, m, { status:'done', doneAt: Date.now() }) : m);
+      lsWrite('messages', arr);
+      if(db) db.collection('messages').doc(id).update({ status:'done', doneAt: Date.now() }).catch(()=>{});
+    });
   });
 }
 // Permanent, never-unsubscribed listener: whenever any device's write (or a
@@ -730,7 +748,7 @@ function tabsForDir(slug){
   if(DIRS_WITH_FINANCE_AND_MESSAGES.includes(slug)) tabs.push(['finance','Финансы']);
   if(DIRS_WITH_MARKETING.includes(slug)) tabs.push(['marketing','Маркетинг и продажи']);
   tabs.push(base[1], base[2], base[3]);
-  if(DIRS_WITH_FINANCE_AND_MESSAGES.includes(slug)) tabs.push(['messages','Сообщения']);
+  // Вкладка «Сообщения» убрана 13.11.2026: Кайрату — только лента «Мне» на главной.
   return tabs;
 }
 
