@@ -260,6 +260,13 @@ body.modal-open{position:fixed;left:0;right:0;overflow:hidden}
 .scout-item .scout-why{font-size:13px;margin-top:4px}
 .scout-item .msg-acts{display:flex;gap:6px;margin-top:8px}
 .scout-item .msg-acts .btn{padding:5px 12px;font-size:13px;text-decoration:none}
+.ap-item{padding:12px 0;border-bottom:1px solid var(--border)}
+.ap-item .ap-media{display:block;width:100%;max-height:420px;object-fit:cover;border-radius:10px;background:var(--surface-2);margin-bottom:8px}
+.ap-item .ap-t{font-weight:600}
+.ap-item .ap-s{color:var(--fg-muted);font-size:12.5px;margin-top:2px}
+.ap-item .ap-w{font-size:12.5px;margin-top:4px}
+.ap-item .msg-acts{display:flex;gap:6px;margin-top:8px}
+.ap-item .msg-acts .btn{padding:6px 14px;font-size:13px;text-decoration:none}
 .msg-home-item .who{display:flex;align-items:center;gap:6px;font-size:13px}
 .msg-home-item .snippet{font-size:12.5px;color:var(--fg-muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* Pull-to-refresh: a spinner that tracks a downward swipe from the top of a
@@ -510,7 +517,7 @@ function renderHomeMsgCard(el){
       <div class="who"><b>${esc(m.title||m.text)}</b></div>
       <div class="snippet">${esc(m.author||'')}${m.why?' · '+esc(m.why):''}</div>
       ${msgOpen.has(m.id) && m.text && m.title ? `<div class="msg-more">${esc(m.text)}</div>` : ''}
-      <div class="msg-acts">${m.action==='scout'?`<button class="btn" data-scout="1">Открыть</button>`:(m.url?`<a class="btn" href="${esc(m.url)}" target="_blank" rel="noopener">Открыть</a>`:'')}<button class="btn ghost" data-done="${esc(m.id)}">Готово</button></div>
+      <div class="msg-acts">${m.action==='scout'?`<button class="btn" data-scout="1">Открыть</button>`:(m.action==='events'||m.action==='reels')?`<button class="btn" data-approve="${esc(m.action)}">Открыть</button>`:(m.url?`<a class="btn" href="${esc(m.url)}" target="_blank" rel="noopener">Открыть</a>`:'')}<button class="btn ghost" data-done="${esc(m.id)}">Готово</button></div>
     </div>`).join('')}</div>`;
   el.querySelectorAll('.msg-home-item').forEach(it=>{
     it.addEventListener('click', e=>{
@@ -519,6 +526,7 @@ function renderHomeMsgCard(el){
     });
   });
   el.querySelectorAll('[data-scout]').forEach(b=> b.addEventListener('click', openScoutSheet));
+  el.querySelectorAll('[data-approve]').forEach(b=> b.addEventListener('click', ()=> openApproveSheet(b.dataset.approve)));
   el.querySelectorAll('[data-done]').forEach(b=>{
     b.addEventListener('click', ()=>{
       const id = b.dataset.done;
@@ -568,6 +576,44 @@ async function openScoutSheet(){
     }));
   }
   try{ items = (await scoutCall('GET')).items || []; draw(); }
+  catch(e){ body.innerHTML = `<div class="empty">Не загрузилось: ${esc(e.message)}</div>`; }
+}
+// Согласование витрины Афиши в Workspace (13.11.2026): события для полок и Reels — «Да / Нет» без перехода в базу.
+const APPROVE_FN = 'https://quzgkhzkrhdlyztzbgcc.supabase.co/functions/v1/workspace-approve';
+async function approveCall(method, kind, body){
+  const { data:{ session } } = await sb.auth.getSession();
+  if(!session) throw new Error('Нужно войти в Workspace');
+  const r = await fetch(APPROVE_FN + (method==='GET' ? '?kind='+encodeURIComponent(kind) : ''), { method, headers:{ 'content-type':'application/json', 'x-ws-token': session.access_token }, body: body?JSON.stringify(Object.assign({ kind }, body)):undefined });
+  const j = await r.json().catch(()=>({}));
+  if(!r.ok) throw new Error(j.error||('Ошибка '+r.status));
+  return j;
+}
+async function openApproveSheet(kind){
+  const esc = v=> String(v??'').replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const title = kind==='events' ? 'События для витрины' : 'Reels для витрины';
+  const bg = document.createElement('div'); bg.className='modal-backdrop';
+  bg.innerHTML = `<div class="modal-card"><div class="modal-head"><div><div class="modal-label">${title}</div><div style="font-size:12.5px;color:var(--fg-muted);margin-top:4px">Робот уже отобрал. Вам — только «Да» или «Нет»: на полки попадает лишь то, что вы взяли.</div></div><button class="modal-close" aria-label="Закрыть">×</button></div><div class="modal-body"><div class="empty">Загрузка…</div></div></div>`;
+  document.body.appendChild(bg);
+  const close = ()=> bg.remove();
+  bg.querySelector('.modal-close').onclick = close; bg.addEventListener('click', e=>{ if(e.target===bg) close(); });
+  const body = bg.querySelector('.modal-body');
+  let items = [];
+  function draw(){
+    if(!items.length){ body.innerHTML = `<div class="empty">Всё разобрано.</div>`; return; }
+    body.innerHTML = `<div style="font-size:12.5px;color:var(--fg-muted);margin:2px 0 8px">Осталось: ${items.length}</div>` + items.map(x=>`<div class="ap-item" data-id="${esc(x.id)}">
+      ${x.video?`<video class="ap-media" src="${esc(x.video)}" poster="${esc(x.image||'')}" controls playsinline preload="none"></video>`:(x.image?`<img class="ap-media" src="${esc(x.image)}" alt="" loading="lazy">`:'')}
+      <div class="ap-t">${esc(x.title)}</div>
+      ${x.sub?`<div class="ap-s">${esc(x.sub)}</div>`:''}
+      ${x.why?`<div class="ap-w">Робот: ${esc(x.why)}</div>`:''}
+      <div class="msg-acts"><button class="btn" data-a="1">Да</button><button class="btn ghost" data-a="0">Нет</button>${x.link?`<a class="btn ghost" href="${esc(x.link)}" target="_blank" rel="noopener">Подробнее</a>`:''}</div>
+    </div>`).join('');
+    body.querySelectorAll('.ap-item').forEach(it=> it.querySelectorAll('[data-a]').forEach(b=> b.onclick = async ()=>{
+      const id = it.dataset.id; it.querySelectorAll('button').forEach(z=> z.disabled = true);
+      try{ await approveCall('POST', kind, { id, approve: b.dataset.a==='1' }); items = items.filter(x=> x.id!==id); draw(); }
+      catch(e){ it.querySelectorAll('button').forEach(z=> z.disabled = false); alert('Не сохранилось: '+e.message); }
+    }));
+  }
+  try{ items = (await approveCall('GET', kind)).items || []; draw(); }
   catch(e){ body.innerHTML = `<div class="empty">Не загрузилось: ${esc(e.message)}</div>`; }
 }
 // Permanent, never-unsubscribed listener: whenever any device's write (or a
