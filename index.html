@@ -27,6 +27,7 @@
 
 .ah-modal{position:fixed;inset:0;background:#0007;display:flex;align-items:center;justify-content:center;z-index:400;padding:20px}.ah-dialog{background:var(--surface);color:var(--fg);border:1px solid var(--border);border-radius:12px;width:min(650px,100%);max-height:90vh;overflow:auto;box-shadow:0 18px 65px #0004}.ah-dialog header{display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid var(--border)}.ah-dialog-body{padding:20px}.ah-dialog label{display:block;margin-bottom:14px}.ah-dialog label>select,.ah-dialog label>input{display:block;width:100%;margin-top:5px;padding:9px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--fg)}.ah-dialog fieldset{border:1px solid var(--border);border-radius:8px}.ah-dialog .ah-person{display:flex;gap:10px;align-items:center;margin:10px 0}.ah-dialog .ah-person input{width:auto;margin:0}.ah-conversation{max-height:50vh;overflow:auto}.ah-dialog textarea{width:100%;box-sizing:border-box;background:var(--surface);color:var(--fg);border:1px solid var(--border);border-radius:8px;padding:10px;resize:vertical;margin-top:15px}.ah-send-row{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:8px}.ah-send-row span{font-size:12px;color:var(--bad)}@media(max-width:640px){.ah-modal{padding:8px}.ah-dialog-body{padding:12px}.ah-controls{flex-wrap:wrap}}
 .ah-chat-search{display:block;box-sizing:border-box;width:100%;padding:11px 14px;border:1px solid var(--border);border-radius:10px;background:var(--surface);color:var(--fg);font:inherit}.ah-chat-filters{display:flex;gap:7px;flex-wrap:wrap;margin:12px 0 16px}.ah-chat-filters button{border:1px solid var(--border);border-radius:20px;padding:7px 11px;background:transparent;color:var(--fg);font:inherit;font-size:13px;cursor:pointer}.ah-chat-filters button[aria-pressed="true"]{background:#e6f1e9;color:#215b36;border-color:#b8d5c2}.ah-chat-filters button:disabled{opacity:.4;cursor:not-allowed}.ah-chat-search:focus-visible,.ah-chat-filters button:focus-visible{outline:2px solid #45855c;outline-offset:2px}
+.ah-message-menu{position:relative;display:inline-block;float:right}.ah-message-menu summary{list-style:none;cursor:pointer;font-size:22px;padding:0 8px;color:var(--muted)}.ah-message-menu summary::-webkit-details-marker{display:none}.ah-message-menu[open] button{position:absolute;right:0;z-index:3;background:var(--surface);border:1px solid var(--border);white-space:nowrap}.ah-post:after{content:"";display:block;clear:both}
 </style></head><body>
 <style>
 /* layout: fixed dark rail of directions + light content pane with tabs */
@@ -2429,7 +2430,7 @@ function mountAcademyChats(panel){
   const search=panel.querySelector('#academyChatSearch');
   let activeFilter='all';
   const status=panel.querySelector('#academyChatStatus');
-  let stopped=false, busy=false, people=[], threads=[], modal=null, request=0, selected=null;
+  let stopped=false, busy=false, people=[], positions=[], threads=[], modal=null, request=0, selected=null;
   const rpc=async(name,args={})=>{if(!sb)throw Error('Нет подключения');const r=await sb.rpc(name,args);if(r.error)throw r.error;return r.data;};
   const failure=e=>{const m=e&&e.message||'';if(m.includes('CHAT_ACCESS_DENIED'))return 'Нет доступа к этому диалогу.';if(m.includes('UNAPPROVED_RECIPIENT'))return 'Получатель ещё не подключён или больше недоступен.';return m||'Не удалось выполнить запрос. Попробуйте снова.';};
   const close=()=>{request++;selected=null;if(modal){modal.remove();modal=null;}};
@@ -2441,7 +2442,7 @@ function mountAcademyChats(panel){
   function draw(){
     const query=search.value.trim().toLocaleLowerCase('ru');
     const visible=threads.filter(t=>(activeFilter!=='groups'||t.kind==='group')&&(!query||[t.title,t.last_message].some(v=>String(v||'').toLocaleLowerCase('ru').includes(query))));
-    chats.innerHTML=visible.length?visible.map(t=>'<button class="ah-thread" data-chat="'+esc(t.id)+'"><span class="ah-avatar">'+(t.kind==='group'?'Г':'Л')+'</span><span class="ah-thread-body"><strong>'+esc(t.title||'Диалог')+'</strong><span>'+esc(t.last_message||'Нет сообщений')+'</span></span><time>'+(t.last_message_at?esc(new Date(t.last_message_at).toLocaleDateString('ru-RU',{day:'numeric',month:'short'})):'')+'</time></button>').join(''):'<div class="ah-empty">'+(query?'Ничего не найдено':activeFilter==='groups'?'Групп пока нет':'Чатов пока нет')+'</div>';
+    chats.innerHTML=visible.length?visible.map(t=>'<button class="ah-thread" data-chat="'+esc(t.id)+'"><span class="ah-avatar">'+(t.kind==='group'?'Г':t.kind==='position'?'Д':'Л')+'</span><span class="ah-thread-body"><strong>'+esc(t.title||'Диалог')+'</strong><span>'+esc(t.last_message||'Нет сообщений')+'</span></span><time>'+(t.last_message_at?esc(new Date(t.last_message_at).toLocaleDateString('ru-RU',{day:'numeric',month:'short'})):'')+'</time></button>').join(''):'<div class="ah-empty">'+(query?'Ничего не найдено':activeFilter==='groups'?'Групп пока нет':'Чатов пока нет')+'</div>';
     chats.querySelectorAll('[data-chat]').forEach(b=>b.onclick=()=>openThread(threads.find(t=>t.id===b.dataset.chat)));
   }
   async function refresh(){
@@ -2451,32 +2452,27 @@ function mountAcademyChats(panel){
     finally{busy=false;}
   }
   async function loadPeople(){
-    try{const result=await rpc('academy_chat_people');if(stopped)return;people=(result||[]).filter(p=>p.user_id!==currentProfile?.id);newBtn.disabled=false;newBtn.title='Открыть список адресатов';panel.querySelector('#academyPeopleStatus').textContent='';}
+    try{const [result,positionRows]=await Promise.all([rpc('academy_chat_people'),rpc('academy_chat_positions')]);if(stopped)return;positions=positionRows||[];people=(result||[]).filter(p=>p.user_id!==currentProfile?.id);newBtn.disabled=false;newBtn.title='Открыть список адресатов';panel.querySelector('#academyPeopleStatus').textContent='';}
     catch(e){if(!stopped){newBtn.disabled=true;panel.querySelector('#academyPeopleStatus').textContent='Не удалось загрузить сотрудников HR: '+failure(e);}}
   }
   newBtn.onclick=()=>{
     const body=openBox('Новый чат');
-    const general=threads.find(t=>t.title==='Общий чат');
-    if(!people.length){
-      body.innerHTML=(general?'<button class="btn" id="ahOpenGeneral">Общий чат</button>':'')+'<p class="ah-note">В HR пока нет подключённых сотрудников. Личный чат станет доступен после назначения сотрудника и привязки его аккаунта.</p>';
-      if(general)body.querySelector('#ahOpenGeneral').onclick=()=>openThread(general);
-      return;
-    }
-    body.innerHTML='<label>Тип<select id="ahKind"><option value="direct">Личный</option><option value="group">Группа</option></select></label><label id="ahTitleWrap" hidden>Название группы<input id="ahTitle" maxlength="120"></label><fieldset><legend>Сотрудники HR</legend>'+people.map(p=>'<label class="ah-person"><input type="checkbox" value="'+esc(p.user_id)+'"><span>'+esc(p.display_name||'Сотрудник')+'</span></label>').join('')+'</fieldset><p id="ahCreateError" role="status"></p><button class="btn" id="ahCreate">Создать</button>';
-    const kind=body.querySelector('#ahKind');kind.onchange=()=>{body.querySelector('#ahTitleWrap').hidden=kind.value!=='group';};
-    body.querySelector('#ahCreate').onclick=async()=>{
-      const members=[...body.querySelectorAll('input[type=checkbox]:checked')].map(x=>x.value);const title=body.querySelector('#ahTitle').value.trim();const err=body.querySelector('#ahCreateError');
-      if(!members.length||(kind.value==='direct'&&members.length!==1)){err.textContent=kind.value==='direct'?'Выберите одного сотрудника.':'Выберите участников.';return;}
-      if(kind.value==='group'&&!title){err.textContent='Укажите название группы.';return;}
-      const btn=body.querySelector('#ahCreate');btn.disabled=true;err.textContent='';
-      try{const id=await rpc('academy_chat_create',{p_kind:kind.value,p_title:kind.value==='group'?title:null,p_member_ids:members});if(stopped||!body.isConnected)return;close();await refresh();const t=threads.find(x=>x.id===id);if(t)openThread(t);}
-      catch(e){if(body.isConnected){err.textContent='Создание не подтверждено: '+failure(e)+' Перед повтором проверьте список чатов.';btn.disabled=false;await refresh();}}
+    body.innerHTML='<label>Найти должность<input id="ahRecipientSearch" type="search" placeholder="Название должности"></label><div id="ahPositionList"></div><p id="ahCreateError" role="status"></p>';
+    const drawPositions=()=>{
+      const q=body.querySelector('#ahRecipientSearch').value.trim().toLocaleLowerCase('ru');
+      body.querySelector('#ahPositionList').innerHTML=positions.filter(p=>p.title.toLocaleLowerCase('ru').includes(q)).map(p=>'<button type="button" class="ah-thread" data-position="'+esc(p.id)+'"><span class="ah-thread-body"><strong>'+esc(p.title)+'</strong><span>Должность · адресат не подключён</span></span></button>').join('')||'<p class="ah-note">Должность не найдена</p>';
+      body.querySelectorAll('[data-position]').forEach(button=>button.onclick=async()=>{
+        button.disabled=true;const err=body.querySelector('#ahCreateError');err.textContent='';
+        try{const id=await rpc('academy_chat_create_position',{p_position_id:button.dataset.position});if(stopped||!body.isConnected)return;close();await refresh();openThread(threads.find(t=>t.id===id));}
+        catch(e){if(body.isConnected){err.textContent=failure(e);button.disabled=false;}}
+      });
     };
+    body.querySelector('#ahRecipientSearch').oninput=drawPositions;drawPositions();
   };
   async function openThread(t){
     if(!t)return;const body=openBox(t.title||'Диалог');selected=t.id;
-    body.innerHTML='<div id="ahMessages" class="ah-conversation" aria-live="polite"></div><form id="ahSend"><textarea aria-label="Сообщение" maxlength="10000" rows="3" required></textarea><div class="ah-send-row"><span id="ahSendStatus" role="status"></span><button class="btn" type="submit">Отправить</button></div></form>';
-    const load=async()=>{const token=++request;try{const rows=await rpc('academy_chat_messages',{p_chat_id:t.id});if(stopped||!body.isConnected||token!==request)return;body.querySelector('#ahMessages').innerHTML=(rows||[]).map(m=>'<article class="ah-post"><div class="ah-post-meta"><strong>'+esc(m.author_name||'Сотрудник')+'</strong><time>'+esc(new Date(m.created_at).toLocaleString('ru-RU',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}))+'</time></div><div class="ah-post-text">'+(m.deleted?'Сообщение удалено':esc(m.body||''))+'</div>'+((m.author_id===currentProfile?.id)?'<button type="button" class="btn ghost ah-message-action" data-message="'+esc(m.id)+'" data-deleted="'+String(!!m.deleted)+'">'+(m.deleted?'Восстановить':'Удалить')+'</button>':'')+'</article>').join('')||'<div class="ah-empty">Нет сообщений</div>';
+    body.innerHTML=(t.kind==='position'?'<p class="ah-note">Адресат не подключён. Сообщения сохраняются только для вас и не доставляются. После подключения отправку нужно будет согласовать отдельно.</p>':'')+'<div id="ahMessages" class="ah-conversation" aria-live="polite"></div><form id="ahSend"><textarea aria-label="Сообщение" maxlength="10000" rows="3" required></textarea><div class="ah-send-row"><span id="ahSendStatus" role="status"></span><button class="btn" type="submit">'+(t.kind==='position'?'Сохранить':'Отправить')+'</button></div></form>';
+    const load=async()=>{const token=++request;try{const rows=await rpc('academy_chat_messages',{p_chat_id:t.id});if(stopped||!body.isConnected||token!==request)return;body.querySelector('#ahMessages').innerHTML=(rows||[]).map(m=>'<article class="ah-post"><div class="ah-post-meta"><strong>'+esc(m.author_name||'Сотрудник')+'</strong><time>'+esc(new Date(m.created_at).toLocaleString('ru-RU',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}))+'</time></div><div class="ah-post-text">'+(m.deleted?'Сообщение удалено':esc(m.body||''))+'</div>'+(t.kind==='position'&&!m.deleted?'<small class="ah-note">Сохранено · не доставлено</small>':'')+((m.author_id===currentProfile?.id)?'<details class="ah-message-menu"><summary aria-label="Действия с сообщением">⋮</summary><button type="button" class="btn ghost ah-message-action" data-message="'+esc(m.id)+'" data-deleted="'+String(!!m.deleted)+'">'+(m.deleted?'Восстановить':'Удалить')+'</button></details>':'')+'</article>').join('')||'<div class="ah-empty">Нет сообщений</div>';
         body.querySelectorAll('[data-message]').forEach(button=>button.onclick=async()=>{
           const deleting=button.dataset.deleted!=='true';
           if(deleting&&!window.confirm('Удалить своё сообщение? Его можно будет восстановить.'))return;
@@ -2505,7 +2501,7 @@ function renderAcademyMessageArchive(panel){
     <section class="academy-home" aria-label="Главная Академии">
       <div class="ah-grid">
         <section class="card ah-feed">
-          <div class="ah-heading"><h3>Чаты</h3><div class="ah-controls"><button class="btn ghost" id="academyNewChat" disabled>Новый чат</button></div></div>
+          <div class="ah-heading"><h3>Чаты</h3><div class="ah-controls"><button class="btn ghost" id="academyNewChat" disabled aria-label="Новый чат" title="Новый чат">＋</button></div></div>
           <input class="ah-chat-search" id="academyChatSearch" type="search" placeholder="Поиск чатов" aria-label="Поиск по названию чата и последнему сообщению" autocomplete="off">
           <div class="ah-chat-filters" id="academyChatFilter" role="group" aria-label="Фильтр чатов">
             <button type="button" data-filter="all" aria-pressed="true">Все</button>
@@ -2514,7 +2510,7 @@ function renderAcademyMessageArchive(panel){
             <button type="button" data-filter="favorites" disabled title="Избранные чаты ещё не подключены" aria-label="Избранные: пока недоступно">Избранные</button>
           </div>
           <div id="academyChatList"></div><p id="academyChatStatus" class="ah-note" role="status"></p><p id="academyPeopleStatus" class="ah-note" role="status"></p>
-          <details id="academyArchive"><summary>Сохранённая переписка Академии</summary><div id="academyMsgArchive" aria-live="polite"></div></details>
+          <details id="academyArchive" hidden><summary>Сохранённая переписка Академии</summary><div id="academyMsgArchive" aria-live="polite"></div></details>
         </section>
         <aside class="ah-side">
           <section class="card"><div class="ah-heading"><h3>Ближайшие события</h3><span class="ah-icon" aria-hidden="true">◷</span></div><div id="academyHomeEvents" aria-live="polite"></div></section>
@@ -3616,6 +3612,7 @@ checkAppVersion();
 </script>
 
 </body></html>
+
 
 
 
