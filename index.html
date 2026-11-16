@@ -1660,7 +1660,7 @@ function renderTasks(panel, dirSlug){
       <div class="task-toolbar">
         <div class="yeartabs" id="taskFilterTabs">${TASK_FILTERS.map(([k,l])=>`<button data-f="${k}" class="${k==='active'?'active':''}">${l} <span class="filter-count" data-c="${k}"></span></button>`).join('')}</div>
         <select id="projectSelect"><option value="">Все проекты</option></select>
-        <button class="btn" id="addTask" style="margin-left:auto">Добавить</button>
+        ${dirSlug==='academy' ? '' : '<button class="btn" id="addTask" style="margin-left:auto">Добавить</button>'}
       </div>
       <div class="list" id="taskList"><div class="empty">Загрузка…</div></div>
     </div>`;
@@ -1913,7 +1913,7 @@ function renderTasks(panel, dirSlug){
   unsubs['projects']=unsubProj;
 
   const addBtnTop = panel.querySelector('#addTask');
-  addBtnTop.addEventListener('click', ()=>{
+  addBtnTop?.addEventListener('click', ()=>{
     openFloatingMenu(addBtnTop, m=>{
       m.innerHTML = `
         <button class="fm-item" data-v="task">Задача</button>
