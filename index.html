@@ -16,7 +16,7 @@
 .ah-grid{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(290px,1fr);gap:20px;align-items:start}
 .ah-side{display:grid;gap:20px}.ah-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:18px}.ah-heading p{font-size:12px}.ah-icon{font-size:24px;color:var(--accent)}
 .ah-compose{border:1px dashed var(--border);border-radius:9px;background:var(--surface-2);padding:12px;display:flex;gap:10px;align-items:center;justify-content:space-between;color:var(--fg-muted)}
-.ah-compose button:disabled{opacity:.5;cursor:not-allowed}.academy-home .ah-note{font-size:11.5px;margin:10px 0 0;line-height:1.5}
+.ah-compose select{min-width:0;max-width:100%;border:0;background:transparent;color:var(--fg-muted);font:inherit}.ah-compose button:disabled{opacity:.5;cursor:not-allowed}.academy-home .ah-note{font-size:11.5px;margin:10px 0 0;line-height:1.5}
 .ah-post{padding:22px 0;border-top:1px solid var(--border)}.ah-post:first-child{margin-top:20px}.ah-post-meta{display:flex;align-items:center;gap:9px;font-size:12px}.ah-post-meta time{margin-left:auto;color:var(--fg-muted);font-size:11px}.ah-avatar{display:grid;place-items:center;width:30px;height:30px;border-radius:50%;background:var(--surface-2);color:var(--accent);font-weight:600}.ah-post-text{white-space:pre-wrap;overflow-wrap:anywhere;margin:12px 0 0;line-height:1.6}
 .ah-empty{padding:24px 0;color:var(--fg-muted)}.ah-empty strong{font-weight:500;color:var(--fg)}.ah-empty p{font-size:12px}
 .ah-chat{display:flex;align-items:center;gap:10px;padding:14px 0;border-top:1px solid var(--border)}.ah-chat-symbol{display:grid;place-items:center;border:1px solid var(--border);width:34px;height:34px;border-radius:9px;color:var(--accent);flex:none}.ah-chat strong{font-size:13px}.ah-chat div>span{display:block;font-size:11px;color:var(--fg-muted);margin-top:3px}.ah-soon{font-size:10px;color:var(--fg-muted);margin-left:auto;white-space:nowrap}.ah-event{display:flex;gap:12px;border-top:1px solid var(--border);padding:14px 0}.ah-date{font-family:var(--mono);font-size:12px;min-width:56px;color:var(--accent)}.ah-event strong{font-size:13px}.ah-event p{font-size:11px}
@@ -2419,12 +2419,10 @@ function renderRecordList(panel, kind, dirSlug){
 function renderAcademyMessageArchive(panel){
   panel.innerHTML = `
     <section class="academy-home" aria-label="Главная Академии">
-      <div class="ah-intro"><div><div class="eyebrow">Команда · события · общение</div><h2>Всё важное в Академии</h2><p>Общая лента и пространство для работы команды.</p></div><span class="pill">Дизайн для обсуждения</span></div>
       <div class="ah-grid">
-        <section class="card ah-feed"><div class="ah-heading"><div><h3>Лента Академии</h3><p>Общие сообщения и объявления</p></div><span class="ah-icon" aria-hidden="true">≋</span></div>
-          <div class="ah-compose"><span>Сообщение команде Академии</span><button class="btn ghost" disabled>Написать</button></div>
-          <p class="ah-note">Пока доступны сохранённые сообщения. Публикация и ответы ещё не подключены.</p>
-          <div id="academyMsgArchive" aria-live="polite"><div class="empty">Загрузка сообщений…</div></div>
+        <section class="card ah-feed">
+          <div class="ah-compose"><select aria-label="Получатель" disabled><option>Выбрать получателя</option></select><button class="btn ghost" disabled title="Отправка ещё не подключена">Написать</button></div>
+          <div id="academyMsgArchive" aria-live="polite"></div>
         </section>
         <aside class="ah-side">
           <section class="card"><div class="ah-heading"><div><h3>Ближайшие события</h3><p>Календарь Академии</p></div><span class="ah-icon" aria-hidden="true">◷</span></div><div id="academyHomeEvents" aria-live="polite"><div class="empty">Загрузка событий…</div></div><p class="ah-note">Здесь показаны только события с привязкой к Академии.</p></section>
