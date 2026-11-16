@@ -2442,7 +2442,7 @@ function mountAcademyChats(panel){
   function draw(){
     const query=search.value.trim().toLocaleLowerCase('ru');
     const visible=threads.filter(t=>(activeFilter!=='groups'||t.kind==='group')&&(!query||[t.title,t.last_message].some(v=>String(v||'').toLocaleLowerCase('ru').includes(query))));
-    chats.innerHTML=visible.length?visible.map(t=>'<button class="ah-thread" data-chat="'+esc(t.id)+'"><span class="ah-avatar">'+(t.kind==='group'?'Г':t.kind==='position'?'Д':'Л')+'</span><span class="ah-thread-body"><strong>'+esc(t.title||'Диалог')+'</strong><span>'+esc(t.last_message||'Нет сообщений')+'</span></span><time>'+(t.last_message_at?esc(new Date(t.last_message_at).toLocaleDateString('ru-RU',{day:'numeric',month:'short'})):'')+'</time></button>').join(''):'<div class="ah-empty">'+(query?'Ничего не найдено':activeFilter==='groups'?'Групп пока нет':'Чатов пока нет')+'</div>';
+    chats.innerHTML=visible.length?visible.map(t=>'<button class="ah-thread" data-chat="'+esc(t.id)+'"><span class="ah-avatar">'+(t.kind==='group'?'Г':t.kind==='position'?'Д':'Л')+'</span><span class="ah-thread-body"><strong>'+esc(t.title||'Диалог')+'</strong><span>'+esc(t.last_message||'Нет сообщений')+'</span>'+(t.kind==='position'?'<small class="ah-note">'+(t.last_message?'Не доставлено · адресат не подключён':'Адресат не подключён')+'</small>':'')+'</span><time>'+(t.last_message_at?esc(new Date(t.last_message_at).toLocaleDateString('ru-RU',{day:'numeric',month:'short'})):'')+'</time></button>').join(''):'<div class="ah-empty">'+(query?'Ничего не найдено':activeFilter==='groups'?'Групп пока нет':'Чатов пока нет')+'</div>';
     chats.querySelectorAll('[data-chat]').forEach(b=>b.onclick=()=>openThread(threads.find(t=>t.id===b.dataset.chat)));
   }
   async function refresh(){
@@ -2471,7 +2471,7 @@ function mountAcademyChats(panel){
   };
   async function openThread(t){
     if(!t)return;const body=openBox(t.title||'Диалог');selected=t.id;
-    body.innerHTML=(t.kind==='position'?'<p class="ah-note">Адресат не подключён. Сообщения сохраняются только для вас и не доставляются. После подключения отправку нужно будет согласовать отдельно.</p>':'')+'<div id="ahMessages" class="ah-conversation" aria-live="polite"></div><form id="ahSend"><textarea aria-label="Сообщение" maxlength="10000" rows="3" required></textarea><div class="ah-send-row"><span id="ahSendStatus" role="status"></span><button class="btn" type="submit">'+(t.kind==='position'?'Сохранить':'Отправить')+'</button></div></form>';
+    body.innerHTML=(t.kind==='position'?'<p class="ah-note">Адресат не подключён. Сообщения сохраняются только для вас и не доставляются. После подключения отправку нужно будет согласовать отдельно.</p>':'')+'<div id="ahMessages" class="ah-conversation" aria-live="polite"></div><form id="ahSend"><textarea aria-label="Сообщение" maxlength="10000" rows="3" required></textarea><div class="ah-send-row"><span id="ahSendStatus" role="status"></span><button class="btn" type="submit">Отправить</button></div></form>';
     const load=async()=>{const token=++request;try{const rows=await rpc('academy_chat_messages',{p_chat_id:t.id});if(stopped||!body.isConnected||token!==request)return;body.querySelector('#ahMessages').innerHTML=(rows||[]).map(m=>'<article class="ah-post"><div class="ah-post-meta"><strong>'+esc(m.author_name||'Сотрудник')+'</strong><time>'+esc(new Date(m.created_at).toLocaleString('ru-RU',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}))+'</time></div><div class="ah-post-text">'+(m.deleted?'Сообщение удалено':esc(m.body||''))+'</div>'+(t.kind==='position'&&!m.deleted?'<small class="ah-note">Сохранено · не доставлено</small>':'')+((m.author_id===currentProfile?.id)?'<details class="ah-message-menu"><summary aria-label="Действия с сообщением">⋮</summary><button type="button" class="btn ghost ah-message-action" data-message="'+esc(m.id)+'" data-deleted="'+String(!!m.deleted)+'">'+(m.deleted?'Восстановить':'Удалить')+'</button></details>':'')+'</article>').join('')||'<div class="ah-empty">Нет сообщений</div>';
         body.querySelectorAll('[data-message]').forEach(button=>button.onclick=async()=>{
           const deleting=button.dataset.deleted!=='true';
@@ -2485,7 +2485,7 @@ function mountAcademyChats(panel){
     await load();if(!body.isConnected)return;
     const timer=setInterval(()=>{if(!body.isConnected){clearInterval(timer);return;}load();},5000);
     const form=body.querySelector('#ahSend');form.onsubmit=async e=>{e.preventDefault();const input=form.querySelector('textarea');const text=input.value.trim();if(!text)return;const btn=form.querySelector('button');btn.disabled=true;input.disabled=true;const msg=body.querySelector('#ahSendStatus');msg.textContent='';
-      try{await rpc('academy_chat_send',{p_chat_id:t.id,p_body:text});if(!body.isConnected)return;input.value='';await load();await refresh();}
+      try{await rpc('academy_chat_send',{p_chat_id:t.id,p_body:text});if(!body.isConnected)return;input.value='';if(t.kind==='position'){close();await refresh();}else{await load();await refresh();}}
       catch(err){if(body.isConnected)msg.textContent='Отправка не подтверждена. Проверьте переписку перед повтором. '+failure(err);}
       finally{if(body.isConnected){btn.disabled=false;input.disabled=false;}}};
   }
@@ -3612,6 +3612,7 @@ checkAppVersion();
 </script>
 
 </body></html>
+
 
 
 
