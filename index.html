@@ -2451,11 +2451,17 @@ function mountAcademyChats(panel){
     finally{busy=false;}
   }
   async function loadPeople(){
-    try{const result=await rpc('academy_chat_people');if(stopped)return;people=(result||[]).filter(p=>p.user_id!==currentProfile?.id);newBtn.disabled=!people.length;newBtn.title=people.length?'Создать диалог':'Нет подключённых сотрудников HR';if(!people.length)panel.querySelector('#academyPeopleStatus').textContent='Нет подключённых сотрудников HR.';}
+    try{const result=await rpc('academy_chat_people');if(stopped)return;people=(result||[]).filter(p=>p.user_id!==currentProfile?.id);newBtn.disabled=false;newBtn.title='Открыть список адресатов';panel.querySelector('#academyPeopleStatus').textContent='';}
     catch(e){if(!stopped){newBtn.disabled=true;panel.querySelector('#academyPeopleStatus').textContent='Не удалось загрузить сотрудников HR: '+failure(e);}}
   }
   newBtn.onclick=()=>{
     const body=openBox('Новый чат');
+    const general=threads.find(t=>t.title==='Общий чат');
+    if(!people.length){
+      body.innerHTML=(general?'<button class="btn" id="ahOpenGeneral">Общий чат</button>':'')+'<p class="ah-note">В HR пока нет подключённых сотрудников. Личный чат станет доступен после назначения сотрудника и привязки его аккаунта.</p>';
+      if(general)body.querySelector('#ahOpenGeneral').onclick=()=>openThread(general);
+      return;
+    }
     body.innerHTML='<label>Тип<select id="ahKind"><option value="direct">Личный</option><option value="group">Группа</option></select></label><label id="ahTitleWrap" hidden>Название группы<input id="ahTitle" maxlength="120"></label><fieldset><legend>Сотрудники HR</legend>'+people.map(p=>'<label class="ah-person"><input type="checkbox" value="'+esc(p.user_id)+'"><span>'+esc(p.display_name||'Сотрудник')+'</span></label>').join('')+'</fieldset><p id="ahCreateError" role="status"></p><button class="btn" id="ahCreate">Создать</button>';
     const kind=body.querySelector('#ahKind');kind.onchange=()=>{body.querySelector('#ahTitleWrap').hidden=kind.value!=='group';};
     body.querySelector('#ahCreate').onclick=async()=>{
@@ -2469,8 +2475,16 @@ function mountAcademyChats(panel){
   };
   async function openThread(t){
     if(!t)return;const body=openBox(t.title||'Диалог');selected=t.id;
-    body.innerHTML='<p class="ah-note">Последние 500 сообщений</p><div id="ahMessages" class="ah-conversation" aria-live="polite"></div><form id="ahSend"><textarea aria-label="Сообщение" maxlength="10000" rows="3" required></textarea><div class="ah-send-row"><span id="ahSendStatus" role="status"></span><button class="btn" type="submit">Отправить</button></div></form>';
-    const load=async()=>{const token=++request;try{const rows=await rpc('academy_chat_messages',{p_chat_id:t.id});if(stopped||!body.isConnected||token!==request)return;body.querySelector('#ahMessages').innerHTML=(rows||[]).map(m=>'<article class="ah-post"><div class="ah-post-meta"><strong>'+esc(m.author_name||'Сотрудник')+'</strong><time>'+esc(new Date(m.created_at).toLocaleString('ru-RU',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}))+'</time></div><div class="ah-post-text">'+esc(m.body||'')+'</div></article>').join('')||'<div class="ah-empty">Нет сообщений</div>';}
+    body.innerHTML='<div id="ahMessages" class="ah-conversation" aria-live="polite"></div><form id="ahSend"><textarea aria-label="Сообщение" maxlength="10000" rows="3" required></textarea><div class="ah-send-row"><span id="ahSendStatus" role="status"></span><button class="btn" type="submit">Отправить</button></div></form>';
+    const load=async()=>{const token=++request;try{const rows=await rpc('academy_chat_messages',{p_chat_id:t.id});if(stopped||!body.isConnected||token!==request)return;body.querySelector('#ahMessages').innerHTML=(rows||[]).map(m=>'<article class="ah-post"><div class="ah-post-meta"><strong>'+esc(m.author_name||'Сотрудник')+'</strong><time>'+esc(new Date(m.created_at).toLocaleString('ru-RU',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}))+'</time></div><div class="ah-post-text">'+(m.deleted?'Сообщение удалено':esc(m.body||''))+'</div>'+((m.author_id===currentProfile?.id)?'<button type="button" class="btn ghost ah-message-action" data-message="'+esc(m.id)+'" data-deleted="'+String(!!m.deleted)+'">'+(m.deleted?'Восстановить':'Удалить')+'</button>':'')+'</article>').join('')||'<div class="ah-empty">Нет сообщений</div>';
+        body.querySelectorAll('[data-message]').forEach(button=>button.onclick=async()=>{
+          const deleting=button.dataset.deleted!=='true';
+          if(deleting&&!window.confirm('Удалить своё сообщение? Его можно будет восстановить.'))return;
+          button.disabled=true;
+          try{await rpc('academy_chat_set_deleted',{p_message_id:button.dataset.message,p_deleted:deleting});await load();await refresh();}
+          catch(e){if(body.isConnected){body.querySelector('#ahSendStatus').textContent='Не удалось изменить сообщение: '+failure(e);button.disabled=false;}}
+        });
+      }
       catch(e){if(body.isConnected){body.querySelector('#ahMessages').innerHTML='';body.querySelector('#ahSendStatus').textContent='Не удалось прочитать сообщения: '+failure(e);}}};
     await load();if(!body.isConnected)return;
     const timer=setInterval(()=>{if(!body.isConnected){clearInterval(timer);return;}load();},5000);
@@ -3602,5 +3616,6 @@ checkAppVersion();
 </script>
 
 </body></html>
+
 
 
