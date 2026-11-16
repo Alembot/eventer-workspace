@@ -243,7 +243,7 @@ body.modal-open{position:fixed;left:0;right:0;overflow:hidden}
 .mention-item .md{color:var(--fg-muted);font-size:11.5px}
 /* Unread-message dot on a direction's nav entry (sidebar rail and the mobile sheet) */
 .rail-item.has-msg{position:relative}
-.rail-item.has-msg span:last-child::after{content:'';position:absolute;top:-2px;margin-left:5px;display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--bad)}
+/* Left-menu unread dot hidden; unread message state is preserved. */
 .sheet-chip{position:relative}
 .sheet-chip.has-msg::after{content:'';position:absolute;top:4px;right:6px;width:7px;height:7px;border-radius:50%;background:var(--bad)}
 .msg-home-item{padding:8px 0;border-bottom:1px solid var(--border);cursor:pointer}
