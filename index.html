@@ -884,6 +884,14 @@ function renderRailFooter(){
 const DIRS_WITH_FINANCE_AND_MESSAGES = ['academy','afisha'];
 const DIRS_WITH_MARKETING = ['academy'];
 function tabsForDir(slug){
+  if(slug==='academy') return [
+    ['tasks','Задачи'],['messages','Сообщения'],
+    ['marketing','Маркетинг и продажи'],
+    ['finance','Финансы'],
+    ['accounting','Бухгалтерия','#accounting/tasks'],
+    ['hr','HR','https://eventer-hr-organization.k-rahimzhan.chatgpt.site/#direction/academy'],
+    ['apps','Приложения'],['decisions','Решения'],['context','Контекст']
+  ];
   if(slug==='workspace') return [['decisions','Решения'],['context','Контекст']];
   const base = [['tasks','Задачи'],['apps','Приложения'],['decisions','Решения'],['context','Контекст']];
   const tabs = base.slice(0,1);
@@ -1447,6 +1455,8 @@ function render(){
   const dir = state.dir==='workspace' ? {slug:'workspace', name:'Workspace'} : DIRECTIONS.find(d=>d.slug===state.dir);
   const tabs = tabsForDir(dir.slug);
   if(!tabs.find(t=>t[0]===state.tab)) state.tab = tabs[0][0];
+  const tabTarget = tabs.find(t=>t[0]===state.tab)?.[2];
+  if(tabTarget){ location.replace(tabTarget); return; }
   const main = document.getElementById('main');
   main.innerHTML = `
     ${viewAsDirection ? `<div class="banner" style="margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;gap:10px">
@@ -1463,7 +1473,11 @@ function render(){
     <div id="panel"></div>
   `;
   main.querySelectorAll('.tab').forEach(el=>{
-    el.addEventListener('click', ()=>{ location.hash = '#'+dir.slug+'/'+el.dataset.tab; });
+    el.addEventListener('click', ()=>{
+      const target = tabs.find(t=>t[0]===el.dataset.tab)?.[2];
+      if(target){ location.href = target; return; }
+      location.hash = '#'+dir.slug+'/'+el.dataset.tab;
+    });
   });
   const exitBtn = document.getElementById('exitPreview');
   if(exitBtn) exitBtn.addEventListener('click', ()=>{ viewAsDirection = null; location.hash = '#home'; render(); });
@@ -1471,6 +1485,7 @@ function render(){
   const panel = document.getElementById('panel');
   if(state.tab==='finance' && DIRS_WITH_FINANCE_AND_MESSAGES.includes(dir.slug)) renderFinance(panel, dir.slug);
   else if(state.tab==='marketing' && DIRS_WITH_MARKETING.includes(dir.slug)) renderMarketing(panel, dir.slug);
+  else if(state.tab==='messages' && dir.slug==='academy') renderAcademyMessageArchive(panel);
   else if(state.tab==='messages') renderMessages(panel, dir.slug);
   else if(state.tab==='apps') renderApps(panel, dir.slug);
   else if(state.tab==='tasks') renderTasks(panel, dir.slug);
@@ -2385,6 +2400,17 @@ function renderRecordList(panel, kind, dirSlug){
 
 // ---------- Messages (db-backed; auto-answered by the direction's RM, or by
 // whoever you @-mention — Финансовый директор for Finance, Гл менеджер in general) ----------
+
+function renderAcademyMessageArchive(panel){
+  panel.innerHTML = '<div class="banner">Сохранённые сообщения Академии. Чат пока не подключён; отправка сообщений недоступна.</div><div class="card"><div class="list" id="academyMsgArchive">Загрузка…</div></div>';
+  const list = panel.querySelector('#academyMsgArchive');
+  if(!db){ list.textContent = 'База данных недоступна.'; return; }
+  unsubs['messages'] = db.collection('messages').where('direction','==','academy').orderBy('ts','desc').limit(50).onSnapshot(snap=>{
+    if(snap.empty){ list.textContent = 'Сохранённых сообщений пока нет.'; return; }
+    list.innerHTML = snap.docs.map(d=>d.data()).reverse().map(m=>'<div class="msg"><div class="who">'+esc(m.author||'')+'</div><div>'+esc(m.text||'')+'</div></div>').join('');
+  }, err=>{ list.textContent = 'Не удалось прочитать сообщения: '+(err.code||err.message||'нет доступа'); });
+}
+
 function renderMessages(panel, dirSlug){
   const curDir = DIRECTIONS.find(d=>d.slug===dirSlug);
   const myTitle = roleTitle(dirSlug);
