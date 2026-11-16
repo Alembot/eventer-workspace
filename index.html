@@ -24,6 +24,8 @@
 @media(max-width:640px){.ah-side{grid-template-columns:1fr}.academy-home .ah-intro{display:block}.ah-intro>.pill{margin-top:12px}.academy-home h2{font-size:21px}.ah-post-meta{flex-wrap:wrap}.ah-soon{font-size:9px}}
 
 .ah-controls{display:flex;gap:8px;align-items:center}.ah-controls select{border:1px solid var(--border);background:var(--surface);color:var(--fg);padding:7px;border-radius:6px}.ah-thread{display:flex;width:100%;gap:12px;text-align:left;align-items:center;border:0;border-top:1px solid var(--border);background:transparent;color:var(--fg);padding:16px 0;cursor:pointer}.ah-thread-body{flex:1;min-width:0}.ah-thread-body>span{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--fg-muted);font-size:12px;margin-top:4px}.ah-thread time{font-size:11px;color:var(--fg-muted)}#academyArchive{margin-top:12px}#academyArchive summary{font-size:12px;color:var(--fg-muted);cursor:pointer}
+
+.ah-modal{position:fixed;inset:0;background:#0007;display:flex;align-items:center;justify-content:center;z-index:400;padding:20px}.ah-dialog{background:var(--surface);color:var(--fg);border:1px solid var(--border);border-radius:12px;width:min(650px,100%);max-height:90vh;overflow:auto;box-shadow:0 18px 65px #0004}.ah-dialog header{display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid var(--border)}.ah-dialog-body{padding:20px}.ah-dialog label{display:block;margin-bottom:14px}.ah-dialog label>select,.ah-dialog label>input{display:block;width:100%;margin-top:5px;padding:9px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--fg)}.ah-dialog fieldset{border:1px solid var(--border);border-radius:8px}.ah-dialog .ah-person{display:flex;gap:10px;align-items:center;margin:10px 0}.ah-dialog .ah-person input{width:auto;margin:0}.ah-conversation{max-height:50vh;overflow:auto}.ah-dialog textarea{width:100%;box-sizing:border-box;background:var(--surface);color:var(--fg);border:1px solid var(--border);border-radius:8px;padding:10px;resize:vertical;margin-top:15px}.ah-send-row{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:8px}.ah-send-row span{font-size:12px;color:var(--bad)}@media(max-width:640px){.ah-modal{padding:8px}.ah-dialog-body{padding:12px}.ah-controls{flex-wrap:wrap}}
 </style></head><body>
 <style>
 /* layout: fixed dark rail of directions + light content pane with tabs */
@@ -2418,15 +2420,75 @@ function renderRecordList(panel, kind, dirSlug){
 // ---------- Messages (db-backed; auto-answered by the direction's RM, or by
 // whoever you @-mention — Финансовый директор for Finance, Гл менеджер in general) ----------
 
+function mountAcademyChats(panel){
+  const esc=v=>String(v??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const chats=panel.querySelector('#academyChatList');
+  const newBtn=panel.querySelector('#academyNewChat');
+  const filter=panel.querySelector('#academyChatFilter');
+  const status=panel.querySelector('#academyChatStatus');
+  let stopped=false, busy=false, people=[], threads=[], modal=null, request=0, selected=null;
+  const rpc=async(name,args={})=>{if(!sb)throw Error('Нет подключения');const r=await sb.rpc(name,args);if(r.error)throw r.error;return r.data;};
+  const failure=e=>{const m=e&&e.message||'';if(m.includes('CHAT_ACCESS_DENIED'))return 'Нет доступа к этому диалогу.';if(m.includes('UNAPPROVED_RECIPIENT'))return 'Получатель ещё не подключён или больше недоступен.';return m||'Не удалось выполнить запрос. Попробуйте снова.';};
+  const close=()=>{request++;selected=null;if(modal){modal.remove();modal=null;}};
+  function openBox(title){
+    close();modal=document.createElement('div');modal.className='ah-modal';modal.setAttribute('role','dialog');modal.setAttribute('aria-modal','true');modal.setAttribute('aria-label',title);
+    modal.innerHTML='<div class="ah-dialog"><header><h3>'+esc(title)+'</h3><button class="btn ghost" data-close aria-label="Закрыть">×</button></header><div class="ah-dialog-body"></div></div>';
+    panel.appendChild(modal);modal.querySelector('[data-close]').onclick=close;modal.addEventListener('click',e=>{if(e.target===modal)close();});modal.addEventListener('keydown',e=>{if(e.key==='Escape')close();});modal.querySelector('[data-close]').focus();return modal.querySelector('.ah-dialog-body');
+  }
+  function draw(){
+    const visible=threads.filter(t=>filter.value!=='groups'||t.kind==='group');
+    chats.innerHTML=visible.length?visible.map(t=>'<button class="ah-thread" data-chat="'+esc(t.id)+'"><span class="ah-avatar">'+(t.kind==='group'?'Г':'Л')+'</span><span class="ah-thread-body"><strong>'+esc(t.title||'Диалог')+'</strong><span>'+esc(t.last_message||'Нет сообщений')+'</span></span><time>'+(t.last_message_at?esc(new Date(t.last_message_at).toLocaleDateString('ru-RU',{day:'numeric',month:'short'})):'')+'</time></button>').join(''):'<div class="ah-empty">Чатов пока нет</div>';
+    chats.querySelectorAll('[data-chat]').forEach(b=>b.onclick=()=>openThread(threads.find(t=>t.id===b.dataset.chat)));
+  }
+  async function refresh(){
+    if(stopped||busy)return;busy=true;
+    try{const result=await rpc('academy_chat_list');if(stopped)return;threads=(result||[]).slice().sort((a,b)=>new Date(b.last_message_at||b.created_at||0)-new Date(a.last_message_at||a.created_at||0));draw();status.textContent='';}
+    catch(e){if(!stopped){threads=[];draw();status.textContent='Не удалось загрузить чаты: '+failure(e);}}
+    finally{busy=false;}
+  }
+  async function loadPeople(){
+    try{const result=await rpc('academy_chat_people');if(stopped)return;people=(result||[]).filter(p=>p.user_id!==currentProfile?.id);newBtn.disabled=!people.length;newBtn.title=people.length?'Создать диалог':'Нет подключённых сотрудников HR';if(!people.length)panel.querySelector('#academyPeopleStatus').textContent='Нет подключённых сотрудников HR.';}
+    catch(e){if(!stopped){newBtn.disabled=true;panel.querySelector('#academyPeopleStatus').textContent='Не удалось загрузить сотрудников HR: '+failure(e);}}
+  }
+  newBtn.onclick=()=>{
+    const body=openBox('Новый чат');
+    body.innerHTML='<label>Тип<select id="ahKind"><option value="direct">Личный</option><option value="group">Группа</option></select></label><label id="ahTitleWrap" hidden>Название группы<input id="ahTitle" maxlength="120"></label><fieldset><legend>Сотрудники HR</legend>'+people.map(p=>'<label class="ah-person"><input type="checkbox" value="'+esc(p.user_id)+'"><span>'+esc(p.display_name||'Сотрудник')+'</span></label>').join('')+'</fieldset><p id="ahCreateError" role="status"></p><button class="btn" id="ahCreate">Создать</button>';
+    const kind=body.querySelector('#ahKind');kind.onchange=()=>{body.querySelector('#ahTitleWrap').hidden=kind.value!=='group';};
+    body.querySelector('#ahCreate').onclick=async()=>{
+      const members=[...body.querySelectorAll('input[type=checkbox]:checked')].map(x=>x.value);const title=body.querySelector('#ahTitle').value.trim();const err=body.querySelector('#ahCreateError');
+      if(!members.length||(kind.value==='direct'&&members.length!==1)){err.textContent=kind.value==='direct'?'Выберите одного сотрудника.':'Выберите участников.';return;}
+      if(kind.value==='group'&&!title){err.textContent='Укажите название группы.';return;}
+      const btn=body.querySelector('#ahCreate');btn.disabled=true;err.textContent='';
+      try{const id=await rpc('academy_chat_create',{p_kind:kind.value,p_title:kind.value==='group'?title:null,p_member_ids:members});if(stopped||!body.isConnected)return;close();await refresh();const t=threads.find(x=>x.id===id);if(t)openThread(t);}
+      catch(e){if(body.isConnected){err.textContent='Создание не подтверждено: '+failure(e)+' Перед повтором проверьте список чатов.';btn.disabled=false;await refresh();}}
+    };
+  };
+  async function openThread(t){
+    if(!t)return;const body=openBox(t.title||'Диалог');selected=t.id;
+    body.innerHTML='<p class="ah-note">Последние 500 сообщений</p><div id="ahMessages" class="ah-conversation" aria-live="polite"></div><form id="ahSend"><textarea aria-label="Сообщение" maxlength="10000" rows="3" required></textarea><div class="ah-send-row"><span id="ahSendStatus" role="status"></span><button class="btn" type="submit">Отправить</button></div></form>';
+    const load=async()=>{const token=++request;try{const rows=await rpc('academy_chat_messages',{p_chat_id:t.id});if(stopped||!body.isConnected||token!==request)return;body.querySelector('#ahMessages').innerHTML=(rows||[]).map(m=>'<article class="ah-post"><div class="ah-post-meta"><strong>'+esc(m.author_name||'Сотрудник')+'</strong><time>'+esc(new Date(m.created_at).toLocaleString('ru-RU',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}))+'</time></div><div class="ah-post-text">'+esc(m.body||'')+'</div></article>').join('')||'<div class="ah-empty">Нет сообщений</div>';}
+      catch(e){if(body.isConnected){body.querySelector('#ahMessages').innerHTML='';body.querySelector('#ahSendStatus').textContent='Не удалось прочитать сообщения: '+failure(e);}}};
+    await load();if(!body.isConnected)return;
+    const timer=setInterval(()=>{if(!body.isConnected){clearInterval(timer);return;}load();},5000);
+    const form=body.querySelector('#ahSend');form.onsubmit=async e=>{e.preventDefault();const input=form.querySelector('textarea');const text=input.value.trim();if(!text)return;const btn=form.querySelector('button');btn.disabled=true;input.disabled=true;const msg=body.querySelector('#ahSendStatus');msg.textContent='';
+      try{await rpc('academy_chat_send',{p_chat_id:t.id,p_body:text});if(!body.isConnected)return;input.value='';await load();await refresh();}
+      catch(err){if(body.isConnected)msg.textContent='Отправка не подтверждена. Проверьте переписку перед повтором. '+failure(err);}
+      finally{if(body.isConnected){btn.disabled=false;input.disabled=false;}}};
+  }
+  filter.onchange=draw;
+  refresh();loadPeople();const timer=setInterval(refresh,10000);
+  unsubs['academy-chats']=()=>{stopped=true;clearInterval(timer);close();};
+}
+
 function renderAcademyMessageArchive(panel){
+  const esc=v=>String(v??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
   panel.innerHTML = `
     <section class="academy-home" aria-label="Главная Академии">
       <div class="ah-grid">
         <section class="card ah-feed">
-          <div class="ah-heading"><h3>Чаты</h3><div class="ah-controls"><select id="academyChatFilter" aria-label="Фильтр чатов"><option value="all">Все</option><option value="groups">Группы</option></select><button class="btn ghost" disabled title="Нужна привязка сотрудников HR к аккаунтам">Новый чат</button></div></div>
-          <div id="academyChatList"></div>
+          <div class="ah-heading"><h3>Чаты</h3><div class="ah-controls"><select id="academyChatFilter" aria-label="Фильтр чатов"><option value="all">Все</option><option value="groups">Группы</option></select><button class="btn ghost" id="academyNewChat" disabled>Новый чат</button></div></div>
+          <div id="academyChatList"></div><p id="academyChatStatus" class="ah-note" role="status"></p><p id="academyPeopleStatus" class="ah-note" role="status"></p>
           <details id="academyArchive"><summary>Сохранённая переписка Академии</summary><div id="academyMsgArchive" aria-live="polite"></div></details>
-          <p class="ah-note">Личные и групповые диалоги ещё не подключены. В HR пока нет подтверждённых сотрудников.</p>
         </section>
         <aside class="ah-side">
           <section class="card"><div class="ah-heading"><h3>Ближайшие события</h3><span class="ah-icon" aria-hidden="true">◷</span></div><div id="academyHomeEvents" aria-live="polite"></div></section>
@@ -2435,14 +2497,10 @@ function renderAcademyMessageArchive(panel){
     </section>`;
   const list = panel.querySelector('#academyMsgArchive');
   const events = panel.querySelector('#academyHomeEvents');
-  const chats = panel.querySelector('#academyChatList');
-  panel.querySelector('#academyChatFilter').addEventListener('change',()=>{ chats.dataset.filter=panel.querySelector('#academyChatFilter').value; });
+  mountAcademyChats(panel);
   if(!db){ list.textContent = 'База данных недоступна.'; events.textContent = 'База данных недоступна.'; return; }
   unsubs['messages'] = db.collection('messages').where('direction','==','academy').orderBy('ts','desc').limit(50).onSnapshot(snap=>{
-    if(snap.empty){ chats.innerHTML = '<div class="ah-empty">Чатов пока нет</div>'; list.innerHTML = '<div class="ah-empty"><strong>Пока тихо</strong><p>Сохранённые сообщения Академии появятся здесь.</p></div>'; return; }
-    const latest = snap.docs[0].data();
-    chats.innerHTML = '<button class="ah-thread" type="button"><span class="ah-avatar">А</span><span class="ah-thread-body"><strong>Академия</strong><span>'+esc((latest.text||'').slice(0,100))+'</span></span><time>'+(latest.ts?esc(new Date(latest.ts).toLocaleDateString('ru-RU',{day:'numeric',month:'short'})):'')+'</time></button>';
-    chats.querySelector('button').addEventListener('click',()=>{const archive=panel.querySelector('#academyArchive');archive.open=!archive.open;});
+    if(snap.empty){ list.innerHTML = '<div class="ah-empty"><strong>Пока тихо</strong><p>Сохранённые сообщения Академии появятся здесь.</p></div>'; return; }
     list.innerHTML = snap.docs.map(d=>d.data()).map(m=>'<article class="ah-post"><div class="ah-post-meta"><span class="ah-avatar">'+esc((m.author||'А').slice(0,1))+'</span><strong>'+esc(m.author||'Академия')+'</strong><time>'+(m.ts?esc(new Date(m.ts).toLocaleDateString('ru-RU',{day:'numeric',month:'short',year:'numeric'})):'')+'</time></div><div class="ah-post-text">'+esc(m.text||'')+'</div></article>').join('');
   }, err=>{ list.textContent = 'Не удалось прочитать сообщения: '+(err.code||err.message||'нет доступа'); });
   unsubs['academy-home-events'] = db.collection('events').where('direction','==','academy').orderBy('when','asc').onSnapshot(snap=>{
@@ -3532,3 +3590,4 @@ checkAppVersion();
 </script>
 
 </body></html>
+
