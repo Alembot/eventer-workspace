@@ -2486,18 +2486,23 @@ function mountAcademyChats(panel){
   };
   async function openThread(t){
     if(!t)return;const body=openBox(t.title||'Диалог');selected=t.id;
-    body.innerHTML=(t.kind==='position'?'<p class="ah-note">Адресат не подключён. Сообщения сохраняются только для вас и не доставляются. После подключения отправку нужно будет согласовать отдельно.</p>':'')+'<div id="ahMessages" class="ah-conversation" aria-live="polite"></div><form id="ahSend"><textarea aria-label="Сообщение" maxlength="10000" rows="3" required></textarea><div class="ah-send-row"><span id="ahSendStatus" role="status"></span><button class="btn" type="submit">Отправить</button></div></form>';
-    const load=async()=>{const token=++request;try{const rows=await rpc('academy_chat_messages',{p_chat_id:t.id});if(stopped||!body.isConnected||token!==request)return;body.querySelector('#ahMessages').innerHTML=(rows||[]).map(m=>'<article class="ah-post"><div class="ah-post-meta"><strong>'+esc(m.author_name||'Сотрудник')+'</strong><time>'+esc(new Date(m.created_at).toLocaleString('ru-RU',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}))+'</time></div><div class="ah-post-text">'+(m.deleted?'Сообщение удалено':esc(m.body||''))+'</div>'+(t.kind==='position'&&!m.deleted?'<small class="ah-note">Сохранено · не доставлено</small>':'')+((m.author_id===currentProfile?.id)?'<details class="ah-message-menu"><summary aria-label="Действия с сообщением">⋮</summary><button type="button" class="btn ghost ah-message-action" data-message="'+esc(m.id)+'" data-deleted="'+String(!!m.deleted)+'">'+(m.deleted?'Восстановить':'Удалить')+'</button></details>':'')+'</article>').join('')||'<div class="ah-empty">Нет сообщений</div>';
+    body.innerHTML=(t.kind==='position'?'<p class="ah-note">Адресат не подключён. Сообщения сохраняются только для вас и не доставляются. После подключения отправку нужно будет согласовать отдельно.</p>':'')+'<button type="button" class="btn ghost" id="ahDeletedToggle" hidden>Удалённые</button><div id="ahMessages" class="ah-conversation" aria-live="polite"></div><form id="ahSend"><textarea aria-label="Сообщение" maxlength="10000" rows="3" required></textarea><div class="ah-send-row"><span id="ahSendStatus" role="status"></span><button class="btn" type="submit">Отправить</button></div></form>';
+    let showDeleted=false,lastMessagesSignature='';
+    const load=async()=>{const token=++request;try{const rows=await rpc('academy_chat_messages',{p_chat_id:t.id});if(stopped||!body.isConnected||token!==request)return;const allRows=rows||[];const removed=allRows.filter(m=>m.deleted&&m.author_id===currentProfile?.id);
+        const deletedToggle=body.querySelector('#ahDeletedToggle');deletedToggle.hidden=!removed.length&&!showDeleted;deletedToggle.textContent=showDeleted?'← Переписка':'Удалённые ('+removed.length+')';
+        const signature=JSON.stringify([showDeleted,allRows]);if(signature===lastMessagesSignature)return;lastMessagesSignature=signature;
+        body.querySelector('#ahMessages').innerHTML=allRows.filter(m=>showDeleted?(m.deleted&&m.author_id===currentProfile?.id):!m.deleted).map(m=>'<article class="ah-post"><div class="ah-post-meta"><strong>'+esc(m.author_name||'Сотрудник')+'</strong><time>'+esc(new Date(m.created_at).toLocaleString('ru-RU',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}))+'</time></div><div class="ah-post-text">'+(m.deleted?'Сообщение удалено':esc(m.body||''))+'</div>'+(t.kind==='position'&&!m.deleted?'<small class="ah-note">Сохранено · не доставлено</small>':'')+((m.author_id===currentProfile?.id)?'<details class="ah-message-menu"><summary aria-label="Действия с сообщением">⋮</summary><button type="button" class="btn ghost ah-message-action" data-message="'+esc(m.id)+'" data-deleted="'+String(!!m.deleted)+'">'+(m.deleted?'Восстановить':'Удалить')+'</button></details>':'')+'</article>').join('')||'<div class="ah-empty">Нет сообщений</div>';
         body.querySelectorAll('.ah-message-menu').forEach(menu=>swipeActions(menu.closest('.ah-post'),menu));
         body.querySelectorAll('[data-message]').forEach(button=>button.onclick=async()=>{
           const deleting=button.dataset.deleted!=='true';
-          if(deleting&&!window.confirm('Удалить своё сообщение? Его можно будет восстановить.'))return;
+          if(button.disabled)return;
           button.disabled=true;
-          try{await rpc('academy_chat_set_deleted',{p_message_id:button.dataset.message,p_deleted:deleting});await load();await refresh();}
+          try{await rpc('academy_chat_set_deleted',{p_message_id:button.dataset.message,p_deleted:deleting});if(!body.isConnected)return;button.closest('.ah-post').remove();lastMessagesSignature='';await load();await refresh();}
           catch(e){if(body.isConnected){body.querySelector('#ahSendStatus').textContent='Не удалось изменить сообщение: '+failure(e);button.disabled=false;}}
         });
       }
       catch(e){if(body.isConnected){body.querySelector('#ahMessages').innerHTML='';body.querySelector('#ahSendStatus').textContent='Не удалось прочитать сообщения: '+failure(e);}}};
+    body.querySelector('#ahDeletedToggle').onclick=()=>{showDeleted=!showDeleted;load();};
     await load();if(!body.isConnected)return;
     const timer=setInterval(()=>{if(!body.isConnected){clearInterval(timer);return;}load();},5000);
     const form=body.querySelector('#ahSend');form.onsubmit=async e=>{e.preventDefault();const input=form.querySelector('textarea');const text=input.value.trim();if(!text)return;const btn=form.querySelector('button');btn.disabled=true;input.disabled=true;const msg=body.querySelector('#ahSendStatus');msg.textContent='';
@@ -3629,6 +3634,7 @@ checkAppVersion();
 </script>
 
 </body></html>
+
 
 
 
