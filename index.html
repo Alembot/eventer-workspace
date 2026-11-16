@@ -23,6 +23,7 @@
 @media(max-width:1000px){.ah-grid{grid-template-columns:1fr}.ah-side{grid-template-columns:1fr 1fr}}
 @media(max-width:640px){.ah-side{grid-template-columns:1fr}.academy-home .ah-intro{display:block}.ah-intro>.pill{margin-top:12px}.academy-home h2{font-size:21px}.ah-post-meta{flex-wrap:wrap}.ah-soon{font-size:9px}}
 
+.ah-controls{display:flex;gap:8px;align-items:center}.ah-controls select{border:1px solid var(--border);background:var(--surface);color:var(--fg);padding:7px;border-radius:6px}.ah-thread{display:flex;width:100%;gap:12px;text-align:left;align-items:center;border:0;border-top:1px solid var(--border);background:transparent;color:var(--fg);padding:16px 0;cursor:pointer}.ah-thread-body{flex:1;min-width:0}.ah-thread-body>span{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--fg-muted);font-size:12px;margin-top:4px}.ah-thread time{font-size:11px;color:var(--fg-muted)}#academyArchive{margin-top:12px}#academyArchive summary{font-size:12px;color:var(--fg-muted);cursor:pointer}
 </style></head><body>
 <style>
 /* layout: fixed dark rail of directions + light content pane with tabs */
@@ -2421,25 +2422,26 @@ function renderAcademyMessageArchive(panel){
     <section class="academy-home" aria-label="Главная Академии">
       <div class="ah-grid">
         <section class="card ah-feed">
-          <div class="ah-compose"><select aria-label="Получатель" disabled><option>Выбрать получателя</option></select><button class="btn ghost" disabled title="Отправка ещё не подключена">Написать</button></div>
-          <div id="academyMsgArchive" aria-live="polite"></div>
+          <div class="ah-heading"><h3>Чаты</h3><div class="ah-controls"><select id="academyChatFilter" aria-label="Фильтр чатов"><option value="all">Все</option><option value="groups">Группы</option></select><button class="btn ghost" disabled title="Нужна привязка сотрудников HR к аккаунтам">Новый чат</button></div></div>
+          <div id="academyChatList"></div>
+          <details id="academyArchive"><summary>Сохранённая переписка Академии</summary><div id="academyMsgArchive" aria-live="polite"></div></details>
+          <p class="ah-note">Личные и групповые диалоги ещё не подключены. В HR пока нет подтверждённых сотрудников.</p>
         </section>
         <aside class="ah-side">
-          <section class="card"><div class="ah-heading"><div><h3>Ближайшие события</h3><p>Календарь Академии</p></div><span class="ah-icon" aria-hidden="true">◷</span></div><div id="academyHomeEvents" aria-live="polite"><div class="empty">Загрузка событий…</div></div><p class="ah-note">Здесь показаны только события с привязкой к Академии.</p></section>
-          <section class="card"><div class="ah-heading"><div><h3>Чаты</h3><p>Сотрудники и цифровые агенты</p></div><span class="pill">Макет</span></div>
-            <div class="ah-chat"><span class="ah-chat-symbol" aria-hidden="true">↗</span><div><strong>Личные</strong><span>Диалоги один на один</span></div><span class="ah-soon">Не подключено</span></div>
-            <div class="ah-chat"><span class="ah-chat-symbol" aria-hidden="true">✓</span><div><strong>По задачам</strong><span>Обсуждение конкретной работы</span></div><span class="ah-soon">Не подключено</span></div>
-            <div class="ah-chat"><span class="ah-chat-symbol" aria-hidden="true">▦</span><div><strong>По проектам</strong><span>Команда и контекст проекта</span></div><span class="ah-soon">Не подключено</span></div>
-            <p class="ah-note">Структура будущих чатов. Переписка пока недоступна.</p>
-          </section>
+          <section class="card"><div class="ah-heading"><h3>Ближайшие события</h3><span class="ah-icon" aria-hidden="true">◷</span></div><div id="academyHomeEvents" aria-live="polite"></div></section>
         </aside>
       </div>
     </section>`;
   const list = panel.querySelector('#academyMsgArchive');
   const events = panel.querySelector('#academyHomeEvents');
+  const chats = panel.querySelector('#academyChatList');
+  panel.querySelector('#academyChatFilter').addEventListener('change',()=>{ chats.dataset.filter=panel.querySelector('#academyChatFilter').value; });
   if(!db){ list.textContent = 'База данных недоступна.'; events.textContent = 'База данных недоступна.'; return; }
   unsubs['messages'] = db.collection('messages').where('direction','==','academy').orderBy('ts','desc').limit(50).onSnapshot(snap=>{
-    if(snap.empty){ list.innerHTML = '<div class="ah-empty"><strong>Пока тихо</strong><p>Сохранённые сообщения Академии появятся здесь.</p></div>'; return; }
+    if(snap.empty){ chats.innerHTML = '<div class="ah-empty">Чатов пока нет</div>'; list.innerHTML = '<div class="ah-empty"><strong>Пока тихо</strong><p>Сохранённые сообщения Академии появятся здесь.</p></div>'; return; }
+    const latest = snap.docs[0].data();
+    chats.innerHTML = '<button class="ah-thread" type="button"><span class="ah-avatar">А</span><span class="ah-thread-body"><strong>Академия</strong><span>'+esc((latest.text||'').slice(0,100))+'</span></span><time>'+(latest.ts?esc(new Date(latest.ts).toLocaleDateString('ru-RU',{day:'numeric',month:'short'})):'')+'</time></button>';
+    chats.querySelector('button').addEventListener('click',()=>{const archive=panel.querySelector('#academyArchive');archive.open=!archive.open;});
     list.innerHTML = snap.docs.map(d=>d.data()).map(m=>'<article class="ah-post"><div class="ah-post-meta"><span class="ah-avatar">'+esc((m.author||'А').slice(0,1))+'</span><strong>'+esc(m.author||'Академия')+'</strong><time>'+(m.ts?esc(new Date(m.ts).toLocaleDateString('ru-RU',{day:'numeric',month:'short',year:'numeric'})):'')+'</time></div><div class="ah-post-text">'+esc(m.text||'')+'</div></article>').join('');
   }, err=>{ list.textContent = 'Не удалось прочитать сообщения: '+(err.code||err.message||'нет доступа'); });
   unsubs['academy-home-events'] = db.collection('events').where('direction','==','academy').orderBy('when','asc').onSnapshot(snap=>{
