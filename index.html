@@ -28,6 +28,7 @@
 .ah-modal{position:fixed;inset:0;background:#0007;display:flex;align-items:center;justify-content:center;z-index:400;padding:20px}.ah-dialog{background:var(--surface);color:var(--fg);border:1px solid var(--border);border-radius:12px;width:min(650px,100%);max-height:90vh;overflow:auto;box-shadow:0 18px 65px #0004}.ah-dialog header{display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid var(--border)}.ah-dialog-body{padding:20px}.ah-dialog label{display:block;margin-bottom:14px}.ah-dialog label>select,.ah-dialog label>input{display:block;width:100%;margin-top:5px;padding:9px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--fg)}.ah-dialog fieldset{border:1px solid var(--border);border-radius:8px}.ah-dialog .ah-person{display:flex;gap:10px;align-items:center;margin:10px 0}.ah-dialog .ah-person input{width:auto;margin:0}.ah-conversation{max-height:50vh;overflow:auto}.ah-dialog textarea{width:100%;box-sizing:border-box;background:var(--surface);color:var(--fg);border:1px solid var(--border);border-radius:8px;padding:10px;resize:vertical;margin-top:15px}.ah-send-row{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:8px}.ah-send-row span{font-size:12px;color:var(--bad)}@media(max-width:640px){.ah-modal{padding:8px}.ah-dialog-body{padding:12px}.ah-controls{flex-wrap:wrap}}
 .ah-chat-search{display:block;box-sizing:border-box;width:100%;padding:11px 14px;border:1px solid var(--border);border-radius:10px;background:var(--surface);color:var(--fg);font:inherit}.ah-chat-filters{display:flex;gap:7px;flex-wrap:wrap;margin:12px 0 16px}.ah-chat-filters button{border:1px solid var(--border);border-radius:20px;padding:7px 11px;background:transparent;color:var(--fg);font:inherit;font-size:13px;cursor:pointer}.ah-chat-filters button[aria-pressed="true"]{background:#e6f1e9;color:#215b36;border-color:#b8d5c2}.ah-chat-filters button:disabled{opacity:.4;cursor:not-allowed}.ah-chat-search:focus-visible,.ah-chat-filters button:focus-visible{outline:2px solid #45855c;outline-offset:2px}
 .ah-message-menu{position:relative;display:inline-block;float:right}.ah-message-menu summary{list-style:none;cursor:pointer;font-size:22px;padding:0 8px;color:var(--muted)}.ah-message-menu summary::-webkit-details-marker{display:none}.ah-message-menu[open] button{position:absolute;right:0;z-index:3;background:var(--surface);border:1px solid var(--border);white-space:nowrap}.ah-post:after{content:"";display:block;clear:both}
+.ah-thread-row{display:flex;align-items:center;position:relative;touch-action:pan-y}.ah-thread-row>.ah-thread{flex:1;min-width:0}.ah-thread-menu{flex:0 0 28px}.ah-thread-menu summary{list-style:none;cursor:pointer;font-size:22px;padding:8px;color:var(--muted)}.ah-thread-menu summary::-webkit-details-marker{display:none}.ah-thread-menu[open]>button,.ah-menu-info{position:absolute;right:0;top:30px;z-index:5;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px;white-space:nowrap;box-shadow:0 3px 12px #0002}.ah-post{touch-action:pan-y}.ah-thread-menu summary:focus-visible,.ah-message-menu summary:focus-visible{outline:2px solid #45855c}
 </style></head><body>
 <style>
 /* layout: fixed dark rail of directions + light content pane with tabs */
@@ -2428,7 +2429,8 @@ function mountAcademyChats(panel){
   const newBtn=panel.querySelector('#academyNewChat');
   const filter=panel.querySelector('#academyChatFilter');
   const search=panel.querySelector('#academyChatSearch');
-  let activeFilter='all';
+  let activeFilter='all', showArchived=false;
+  const archiveToggle=panel.querySelector('#academyArchiveToggle');
   const status=panel.querySelector('#academyChatStatus');
   let stopped=false, busy=false, people=[], positions=[], threads=[], modal=null, request=0, selected=null;
   const rpc=async(name,args={})=>{if(!sb)throw Error('Нет подключения');const r=await sb.rpc(name,args);if(r.error)throw r.error;return r.data;};
@@ -2439,11 +2441,24 @@ function mountAcademyChats(panel){
     modal.innerHTML='<div class="ah-dialog"><header><h3>'+esc(title)+'</h3><button class="btn ghost" data-close aria-label="Закрыть">×</button></header><div class="ah-dialog-body"></div></div>';
     panel.appendChild(modal);modal.querySelector('[data-close]').onclick=close;modal.addEventListener('click',e=>{if(e.target===modal)close();});modal.addEventListener('keydown',e=>{if(e.key==='Escape')close();});modal.querySelector('[data-close]').focus();return modal.querySelector('.ah-dialog-body');
   }
+  function swipeActions(row,menu){
+    let start=null,swiped=false;
+    row.addEventListener('pointerdown',e=>{if(e.pointerType!=='touch'&&e.pointerType!=='pen')return;start={x:e.clientX,y:e.clientY};swiped=false;});
+    row.addEventListener('pointerup',e=>{if(!start)return;const dx=e.clientX-start.x,dy=e.clientY-start.y;start=null;if(Math.abs(dx)<50||Math.abs(dx)<Math.abs(dy)*1.5)return;swiped=true;menu.open=dx<0;});
+    row.addEventListener('pointercancel',()=>{start=null;});
+    row.addEventListener('click',e=>{if(swiped){e.preventDefault();e.stopPropagation();swiped=false;}},true);
+  }
   function draw(){
     const query=search.value.trim().toLocaleLowerCase('ru');
-    const visible=threads.filter(t=>(activeFilter!=='groups'||t.kind==='group')&&(!query||[t.title,t.last_message].some(v=>String(v||'').toLocaleLowerCase('ru').includes(query))));
-    chats.innerHTML=visible.length?visible.map(t=>'<button class="ah-thread" data-chat="'+esc(t.id)+'"><span class="ah-avatar">'+(t.kind==='group'?'Г':t.kind==='position'?'Д':'Л')+'</span><span class="ah-thread-body"><strong>'+esc(t.title||'Диалог')+'</strong><span>'+esc(t.last_message||'Нет сообщений')+'</span>'+(t.kind==='position'?'<small class="ah-note">'+(t.last_message?'Не доставлено · адресат не подключён':'Адресат не подключён')+'</small>':'')+'</span><time>'+(t.last_message_at?esc(new Date(t.last_message_at).toLocaleDateString('ru-RU',{day:'numeric',month:'short'})):'')+'</time></button>').join(''):'<div class="ah-empty">'+(query?'Ничего не найдено':activeFilter==='groups'?'Групп пока нет':'Чатов пока нет')+'</div>';
+    const visible=threads.filter(t=>!!t.archived===showArchived&&(activeFilter!=='groups'||t.kind==='group')&&(!query||[t.title,t.last_message].some(v=>String(v||'').toLocaleLowerCase('ru').includes(query))));
+    chats.innerHTML=visible.length?visible.map(t=>'<div class="ah-thread-row"><button class="ah-thread" data-chat="'+esc(t.id)+'"><span class="ah-avatar">'+(t.kind==='group'?'Г':t.kind==='position'?'Д':'Л')+'</span><span class="ah-thread-body"><strong>'+esc(t.title||'Диалог')+'</strong><span>'+esc(t.last_message||'Нет сообщений')+'</span>'+(t.kind==='position'?'<small class="ah-note">'+(t.last_message?'Не доставлено · адресат не подключён':'Адресат не подключён')+'</small>':'')+'</span><time>'+(t.last_message_at?esc(new Date(t.last_message_at).toLocaleDateString('ru-RU',{day:'numeric',month:'short'})):'')+'</time></button><details class="ah-thread-menu"><summary aria-label="Действия с чатом">⋮</summary>'+(t.is_general?'<span class="ah-menu-info">Общий чат не архивируется</span>':'<button type="button" class="btn ghost" data-archive="'+esc(t.id)+'" data-archived="'+String(!!t.archived)+'">'+(t.archived?'Вернуть из архива':'В архив')+'</button>')+'</details></div>').join(''):'<div class="ah-empty">'+(query?'Ничего не найдено':activeFilter==='groups'?'Групп пока нет':'Чатов пока нет')+'</div>';
     chats.querySelectorAll('[data-chat]').forEach(b=>b.onclick=()=>openThread(threads.find(t=>t.id===b.dataset.chat)));
+    chats.querySelectorAll('.ah-thread-row').forEach(row=>swipeActions(row,row.querySelector('.ah-thread-menu')));
+    chats.querySelectorAll('[data-archive]').forEach(button=>button.onclick=async()=>{
+      button.disabled=true;
+      try{await rpc('academy_chat_set_archived',{p_chat_id:button.dataset.archive,p_archived:button.dataset.archived!=='true'});await refresh();}
+      catch(e){status.textContent='Не удалось изменить архив: '+failure(e);button.disabled=false;}
+    });
   }
   async function refresh(){
     if(stopped||busy)return;busy=true;
@@ -2473,6 +2488,7 @@ function mountAcademyChats(panel){
     if(!t)return;const body=openBox(t.title||'Диалог');selected=t.id;
     body.innerHTML=(t.kind==='position'?'<p class="ah-note">Адресат не подключён. Сообщения сохраняются только для вас и не доставляются. После подключения отправку нужно будет согласовать отдельно.</p>':'')+'<div id="ahMessages" class="ah-conversation" aria-live="polite"></div><form id="ahSend"><textarea aria-label="Сообщение" maxlength="10000" rows="3" required></textarea><div class="ah-send-row"><span id="ahSendStatus" role="status"></span><button class="btn" type="submit">Отправить</button></div></form>';
     const load=async()=>{const token=++request;try{const rows=await rpc('academy_chat_messages',{p_chat_id:t.id});if(stopped||!body.isConnected||token!==request)return;body.querySelector('#ahMessages').innerHTML=(rows||[]).map(m=>'<article class="ah-post"><div class="ah-post-meta"><strong>'+esc(m.author_name||'Сотрудник')+'</strong><time>'+esc(new Date(m.created_at).toLocaleString('ru-RU',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}))+'</time></div><div class="ah-post-text">'+(m.deleted?'Сообщение удалено':esc(m.body||''))+'</div>'+(t.kind==='position'&&!m.deleted?'<small class="ah-note">Сохранено · не доставлено</small>':'')+((m.author_id===currentProfile?.id)?'<details class="ah-message-menu"><summary aria-label="Действия с сообщением">⋮</summary><button type="button" class="btn ghost ah-message-action" data-message="'+esc(m.id)+'" data-deleted="'+String(!!m.deleted)+'">'+(m.deleted?'Восстановить':'Удалить')+'</button></details>':'')+'</article>').join('')||'<div class="ah-empty">Нет сообщений</div>';
+        body.querySelectorAll('.ah-message-menu').forEach(menu=>swipeActions(menu.closest('.ah-post'),menu));
         body.querySelectorAll('[data-message]').forEach(button=>button.onclick=async()=>{
           const deleting=button.dataset.deleted!=='true';
           if(deleting&&!window.confirm('Удалить своё сообщение? Его можно будет восстановить.'))return;
@@ -2490,6 +2506,7 @@ function mountAcademyChats(panel){
       finally{if(body.isConnected){btn.disabled=false;input.disabled=false;}}};
   }
   filter.querySelectorAll('[data-filter]').forEach(button=>{button.onclick=()=>{if(button.disabled)return;activeFilter=button.dataset.filter;filter.querySelectorAll('[data-filter]').forEach(b=>b.setAttribute('aria-pressed',String(b===button)));draw();};});
+  archiveToggle.onclick=()=>{showArchived=!showArchived;archiveToggle.textContent=showArchived?'← Чаты':'Архив';archiveToggle.setAttribute('aria-pressed',String(showArchived));draw();};
   search.oninput=draw;
   refresh();loadPeople();const timer=setInterval(refresh,10000);
   unsubs['academy-chats']=()=>{stopped=true;clearInterval(timer);close();};
@@ -2509,7 +2526,7 @@ function renderAcademyMessageArchive(panel){
             <button type="button" data-filter="groups" aria-pressed="false">Группы</button>
             <button type="button" data-filter="favorites" disabled title="Избранные чаты ещё не подключены" aria-label="Избранные: пока недоступно">Избранные</button>
           </div>
-          <div id="academyChatList"></div><p id="academyChatStatus" class="ah-note" role="status"></p><p id="academyPeopleStatus" class="ah-note" role="status"></p>
+          <button type="button" class="btn ghost" id="academyArchiveToggle" aria-pressed="false">Архив</button><div id="academyChatList"></div><p id="academyChatStatus" class="ah-note" role="status"></p><p id="academyPeopleStatus" class="ah-note" role="status"></p>
           <details id="academyArchive" hidden><summary>Сохранённая переписка Академии</summary><div id="academyMsgArchive" aria-live="polite"></div></details>
         </section>
         <aside class="ah-side">
@@ -3612,6 +3629,7 @@ checkAppVersion();
 </script>
 
 </body></html>
+
 
 
 
