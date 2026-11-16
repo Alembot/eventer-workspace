@@ -26,6 +26,7 @@
 .ah-controls{display:flex;gap:8px;align-items:center}.ah-controls select{border:1px solid var(--border);background:var(--surface);color:var(--fg);padding:7px;border-radius:6px}.ah-thread{display:flex;width:100%;gap:12px;text-align:left;align-items:center;border:0;border-top:1px solid var(--border);background:transparent;color:var(--fg);padding:16px 0;cursor:pointer}.ah-thread-body{flex:1;min-width:0}.ah-thread-body>span{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--fg-muted);font-size:12px;margin-top:4px}.ah-thread time{font-size:11px;color:var(--fg-muted)}#academyArchive{margin-top:12px}#academyArchive summary{font-size:12px;color:var(--fg-muted);cursor:pointer}
 
 .ah-modal{position:fixed;inset:0;background:#0007;display:flex;align-items:center;justify-content:center;z-index:400;padding:20px}.ah-dialog{background:var(--surface);color:var(--fg);border:1px solid var(--border);border-radius:12px;width:min(650px,100%);max-height:90vh;overflow:auto;box-shadow:0 18px 65px #0004}.ah-dialog header{display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid var(--border)}.ah-dialog-body{padding:20px}.ah-dialog label{display:block;margin-bottom:14px}.ah-dialog label>select,.ah-dialog label>input{display:block;width:100%;margin-top:5px;padding:9px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--fg)}.ah-dialog fieldset{border:1px solid var(--border);border-radius:8px}.ah-dialog .ah-person{display:flex;gap:10px;align-items:center;margin:10px 0}.ah-dialog .ah-person input{width:auto;margin:0}.ah-conversation{max-height:50vh;overflow:auto}.ah-dialog textarea{width:100%;box-sizing:border-box;background:var(--surface);color:var(--fg);border:1px solid var(--border);border-radius:8px;padding:10px;resize:vertical;margin-top:15px}.ah-send-row{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:8px}.ah-send-row span{font-size:12px;color:var(--bad)}@media(max-width:640px){.ah-modal{padding:8px}.ah-dialog-body{padding:12px}.ah-controls{flex-wrap:wrap}}
+.ah-chat-search{display:block;box-sizing:border-box;width:100%;padding:11px 14px;border:1px solid var(--border);border-radius:10px;background:var(--surface);color:var(--fg);font:inherit}.ah-chat-filters{display:flex;gap:7px;flex-wrap:wrap;margin:12px 0 16px}.ah-chat-filters button{border:1px solid var(--border);border-radius:20px;padding:7px 11px;background:transparent;color:var(--fg);font:inherit;font-size:13px;cursor:pointer}.ah-chat-filters button[aria-pressed="true"]{background:#e6f1e9;color:#215b36;border-color:#b8d5c2}.ah-chat-filters button:disabled{opacity:.4;cursor:not-allowed}.ah-chat-search:focus-visible,.ah-chat-filters button:focus-visible{outline:2px solid #45855c;outline-offset:2px}
 </style></head><body>
 <style>
 /* layout: fixed dark rail of directions + light content pane with tabs */
@@ -2425,6 +2426,8 @@ function mountAcademyChats(panel){
   const chats=panel.querySelector('#academyChatList');
   const newBtn=panel.querySelector('#academyNewChat');
   const filter=panel.querySelector('#academyChatFilter');
+  const search=panel.querySelector('#academyChatSearch');
+  let activeFilter='all';
   const status=panel.querySelector('#academyChatStatus');
   let stopped=false, busy=false, people=[], threads=[], modal=null, request=0, selected=null;
   const rpc=async(name,args={})=>{if(!sb)throw Error('Нет подключения');const r=await sb.rpc(name,args);if(r.error)throw r.error;return r.data;};
@@ -2436,8 +2439,9 @@ function mountAcademyChats(panel){
     panel.appendChild(modal);modal.querySelector('[data-close]').onclick=close;modal.addEventListener('click',e=>{if(e.target===modal)close();});modal.addEventListener('keydown',e=>{if(e.key==='Escape')close();});modal.querySelector('[data-close]').focus();return modal.querySelector('.ah-dialog-body');
   }
   function draw(){
-    const visible=threads.filter(t=>filter.value!=='groups'||t.kind==='group');
-    chats.innerHTML=visible.length?visible.map(t=>'<button class="ah-thread" data-chat="'+esc(t.id)+'"><span class="ah-avatar">'+(t.kind==='group'?'Г':'Л')+'</span><span class="ah-thread-body"><strong>'+esc(t.title||'Диалог')+'</strong><span>'+esc(t.last_message||'Нет сообщений')+'</span></span><time>'+(t.last_message_at?esc(new Date(t.last_message_at).toLocaleDateString('ru-RU',{day:'numeric',month:'short'})):'')+'</time></button>').join(''):'<div class="ah-empty">Чатов пока нет</div>';
+    const query=search.value.trim().toLocaleLowerCase('ru');
+    const visible=threads.filter(t=>(activeFilter!=='groups'||t.kind==='group')&&(!query||[t.title,t.last_message].some(v=>String(v||'').toLocaleLowerCase('ru').includes(query))));
+    chats.innerHTML=visible.length?visible.map(t=>'<button class="ah-thread" data-chat="'+esc(t.id)+'"><span class="ah-avatar">'+(t.kind==='group'?'Г':'Л')+'</span><span class="ah-thread-body"><strong>'+esc(t.title||'Диалог')+'</strong><span>'+esc(t.last_message||'Нет сообщений')+'</span></span><time>'+(t.last_message_at?esc(new Date(t.last_message_at).toLocaleDateString('ru-RU',{day:'numeric',month:'short'})):'')+'</time></button>').join(''):'<div class="ah-empty">'+(query?'Ничего не найдено':activeFilter==='groups'?'Групп пока нет':'Чатов пока нет')+'</div>';
     chats.querySelectorAll('[data-chat]').forEach(b=>b.onclick=()=>openThread(threads.find(t=>t.id===b.dataset.chat)));
   }
   async function refresh(){
@@ -2475,7 +2479,8 @@ function mountAcademyChats(panel){
       catch(err){if(body.isConnected)msg.textContent='Отправка не подтверждена. Проверьте переписку перед повтором. '+failure(err);}
       finally{if(body.isConnected){btn.disabled=false;input.disabled=false;}}};
   }
-  filter.onchange=draw;
+  filter.querySelectorAll('[data-filter]').forEach(button=>{button.onclick=()=>{if(button.disabled)return;activeFilter=button.dataset.filter;filter.querySelectorAll('[data-filter]').forEach(b=>b.setAttribute('aria-pressed',String(b===button)));draw();};});
+  search.oninput=draw;
   refresh();loadPeople();const timer=setInterval(refresh,10000);
   unsubs['academy-chats']=()=>{stopped=true;clearInterval(timer);close();};
 }
@@ -2486,7 +2491,14 @@ function renderAcademyMessageArchive(panel){
     <section class="academy-home" aria-label="Главная Академии">
       <div class="ah-grid">
         <section class="card ah-feed">
-          <div class="ah-heading"><h3>Чаты</h3><div class="ah-controls"><select id="academyChatFilter" aria-label="Фильтр чатов"><option value="all">Все</option><option value="groups">Группы</option></select><button class="btn ghost" id="academyNewChat" disabled>Новый чат</button></div></div>
+          <div class="ah-heading"><h3>Чаты</h3><div class="ah-controls"><button class="btn ghost" id="academyNewChat" disabled>Новый чат</button></div></div>
+          <input class="ah-chat-search" id="academyChatSearch" type="search" placeholder="Поиск чатов" aria-label="Поиск по названию чата и последнему сообщению" autocomplete="off">
+          <div class="ah-chat-filters" id="academyChatFilter" role="group" aria-label="Фильтр чатов">
+            <button type="button" data-filter="all" aria-pressed="true">Все</button>
+            <button type="button" data-filter="unread" disabled title="Учёт прочитанных сообщений ещё не подключён" aria-label="Непрочитанные: пока недоступно">Непрочитанные</button>
+            <button type="button" data-filter="groups" aria-pressed="false">Группы</button>
+            <button type="button" data-filter="favorites" disabled title="Избранные чаты ещё не подключены" aria-label="Избранные: пока недоступно">Избранные</button>
+          </div>
           <div id="academyChatList"></div><p id="academyChatStatus" class="ah-note" role="status"></p><p id="academyPeopleStatus" class="ah-note" role="status"></p>
           <details id="academyArchive"><summary>Сохранённая переписка Академии</summary><div id="academyMsgArchive" aria-live="polite"></div></details>
         </section>
@@ -3590,4 +3602,5 @@ checkAppVersion();
 </script>
 
 </body></html>
+
 
