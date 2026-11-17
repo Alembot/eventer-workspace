@@ -267,6 +267,12 @@ body.modal-open{position:fixed;left:0;right:0;overflow:hidden}
 /* Left-menu unread dot hidden; unread message state is preserved. */
 .sheet-chip{position:relative}
 .sheet-chip.has-msg::after{content:'';position:absolute;top:4px;right:6px;width:7px;height:7px;border-radius:50%;background:var(--bad)}
+.ap-why{margin-top:8px;padding:10px;border:1px solid var(--border);border-radius:12px}
+.ap-wh{font-size:12.5px;color:var(--fg-muted);margin-bottom:6px}
+.ap-rs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+.ap-r{font:inherit;font-size:12.5px;text-align:left;border:1px solid var(--border);background:transparent;color:var(--fg);border-radius:999px;padding:5px 10px;cursor:pointer}
+.ap-r.on{background:#e91e8c;border-color:#e91e8c;color:#fff}
+.ap-note{width:100%;box-sizing:border-box;font:inherit;font-size:13px;border:1px solid var(--border);border-radius:10px;padding:8px;background:transparent;color:var(--fg);margin-bottom:6px}
 .nt-dirs{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 8px}
 .nt-dirs button,.nt-info{font:inherit;font-size:12.5px;border:1px solid var(--border);background:transparent;color:var(--fg);border-radius:999px;padding:4px 10px;cursor:pointer}
 .nt-dirs button.on{background:var(--fg);color:var(--bg);border-color:var(--fg)}
@@ -671,6 +677,13 @@ async function approveCall(method, kind, body){
   if(!r.ok) throw new Error(j.error||('Ошибка '+r.status));
   return j;
 }
+// 17.11.2026: «Нет» — с причиной. Готовые причины + свои слова; роботы-отборщики учатся на них.
+const REJECT_REASONS = {
+  events: ['Картинка — не афиша: нет даты, места, названия','Некрасиво: слабое фото или дизайн','Не открытие: и так рекламируется везде','Не событие: урок, курс, реклама','Мало информации: непонятно, что это','Дубль: уже есть на витрине','Не наш формат'],
+  reels: ['Из ролика непонятно что, где и когда','Ролик не про это событие','Реклама заведения, а не событие','Слабое качество видео или звука','Скучно, не цепляет с первых секунд','Не открытие: и так рекламируется везде','Не наш формат'],
+  experiences: ['Это услуга, а не впечатление','Некрасивые фото','Нет цены или условий','Не открытие: такое есть везде','Мало информации: непонятно, что это','Не наш формат']
+};
+const LINK_LABEL = { events:'Страница события', reels:'Пост в Instagram', experiences:'Источник' };
 async function openApproveSheet(kind){
   const esc = v=> String(v??'').replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
   const title = kind==='events' ? 'События для витрины' : kind==='experiences' ? 'Впечатления для витрины' : 'Reels для витрины';
@@ -689,13 +702,27 @@ async function openApproveSheet(kind){
       ${x.sub?`<div class="ap-s">${esc(x.sub)}</div>`:''}
       ${x.about?`<div class="ap-w">${esc(x.about)}</div>`:''}
       ${x.why?`<div class="ap-w" style="color:var(--fg-muted)">Робот: ${esc(x.why)}</div>`:''}
-      <div class="msg-acts"><button class="btn" data-a="1">Да</button><button class="btn ghost" data-a="0">Нет</button>${x.link?`<a class="btn ghost" href="${esc(x.link)}" target="_blank" rel="noopener">Подробнее</a>`:''}</div>
+      <div class="msg-acts"><button class="btn" data-a="1">Да</button><button class="btn ghost" data-no="1">Нет</button>${x.link?`<a class="btn ghost" href="${esc(x.link)}" target="_blank" rel="noopener">${LINK_LABEL[kind]||'Источник'}</a>`:''}</div>
+      <div class="ap-why" hidden><div class="ap-wh">Почему нет? Можно выбрать несколько</div>
+        <div class="ap-rs">${(REJECT_REASONS[kind]||[]).map(r=>`<button type="button" class="ap-r" data-r="${esc(r)}">${esc(r)}</button>`).join('')}</div>
+        <textarea class="ap-note" rows="2" placeholder="Своими словами (необязательно)"></textarea>
+        <div class="msg-acts"><button class="btn" data-a="0">Отклонить</button><button class="btn ghost" data-cancel="1">Отмена</button></div></div>
     </div>`).join('');
-    body.querySelectorAll('.ap-item').forEach(it=> it.querySelectorAll('[data-a]').forEach(b=> b.onclick = async ()=>{
-      const id = it.dataset.id; it.querySelectorAll('button').forEach(z=> z.disabled = true);
-      try{ await approveCall('POST', kind, { id, approve: b.dataset.a==='1' }); items = items.filter(x=> x.id!==id); draw(); }
-      catch(e){ it.querySelectorAll('button').forEach(z=> z.disabled = false); alert('Не сохранилось: '+e.message); }
-    }));
+    body.querySelectorAll('.ap-item').forEach(it=>{
+      const box = it.querySelector('.ap-why');
+      it.querySelector('[data-no]').onclick = ()=>{ box.hidden = false; box.scrollIntoView({ block:'nearest', behavior:'smooth' }); };
+      it.querySelector('[data-cancel]').onclick = ()=>{ box.hidden = true; };
+      it.querySelectorAll('.ap-r').forEach(c=> c.onclick = ()=> c.classList.toggle('on'));
+      it.querySelectorAll('[data-a]').forEach(b=> b.onclick = async ()=>{
+        const id = it.dataset.id, approve = b.dataset.a==='1';
+        const reasons = approve ? [] : [...it.querySelectorAll('.ap-r.on')].map(c=> c.dataset.r);
+        const note = approve ? '' : it.querySelector('.ap-note').value.trim();
+        if(!approve && !reasons.length && !note){ box.querySelector('.ap-wh').textContent = 'Выберите причину или напишите своими словами'; return; }
+        it.querySelectorAll('button').forEach(z=> z.disabled = true);
+        try{ await approveCall('POST', kind, { id, approve, reasons, note }); items = items.filter(x=> x.id!==id); draw(); }
+        catch(e){ it.querySelectorAll('button').forEach(z=> z.disabled = false); alert('Не сохранилось: '+e.message); }
+      });
+    });
   }
   try{ items = (await approveCall('GET', kind)).items || []; draw(); }
   catch(e){ body.innerHTML = `<div class="empty">Не загрузилось: ${esc(e.message)}</div>`; }
@@ -3677,7 +3704,7 @@ boot();
 
 // Автообновление (13.11.2026): установленное на iPhone приложение держит старую версию страницы.
 // При каждом возврате в приложение сверяем версию с сервером и перезагружаемся, если вышла новая.
-const APP_VERSION = '202611171135';
+const APP_VERSION = '202611171150';
 async function checkAppVersion(){
   try{
     const r = await fetch('version.json?t=' + Date.now(), { cache: 'no-store' });
