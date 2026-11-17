@@ -561,6 +561,13 @@ function renderHomeMsgCard(el){
     });
   });
 }
+// 17.11.2026: согласование разобрано до конца — карточка в «Мне» закрывается сама, без кнопки «Готово».
+function closeMsgsByAction(action){
+  const ids = lsRead('messages').filter(m=> m.forKairat && m.status!=='done' && m.action===action).map(m=> m.id);
+  if(!ids.length) return;
+  lsWrite('messages', lsRead('messages').map(m=> ids.includes(m.id) ? Object.assign({}, m, { status:'done', doneAt: Date.now() }) : m));
+  if(db) ids.forEach(id=> db.collection('messages').doc(id).update({ status:'done', doneAt: Date.now() }).catch(()=>{}));
+}
 // «Новые источники Афиши» прямо в Workspace (13.11.2026): решение «Подключить / Нет» без перехода в базу
 // (на iPhone ссылка из приложения открывалась в Chrome). Данные — функция workspace-scout проекта Афиши,
 // вход — по сессии Workspace, пускает только редакторов витрины.
@@ -583,7 +590,7 @@ async function openScoutSheet(){
   const body = bg.querySelector('.modal-body');
   let items = [], cat = 'Все';
   function draw(){
-    if(!items.length){ body.innerHTML = `<div class="empty">Всё разобрано.</div>`; return; }
+    if(!items.length){ body.innerHTML = `<div class="empty">Всё разобрано.</div>`; closeMsgsByAction('scout'); return; }
     const cats = ['Все', ...new Set(items.map(x=> x.category||'Другое'))];
     const view = cat==='Все' ? items : items.filter(x=> (x.category||'Другое')===cat);
     body.innerHTML = `<div class="scout-cats">${cats.map(c=>`<button class="${c===cat?'on':''}" data-cat="${esc(c)}">${esc(c)}${c==='Все'?' '+items.length:''}</button>`).join('')}</div>` +
@@ -624,7 +631,7 @@ async function openApproveSheet(kind){
   const body = bg.querySelector('.modal-body');
   let items = [];
   function draw(){
-    if(!items.length){ body.innerHTML = `<div class="empty">Всё разобрано.</div>`; return; }
+    if(!items.length){ body.innerHTML = `<div class="empty">Всё разобрано.</div>`; closeMsgsByAction(kind); return; }
     body.innerHTML = `<div style="font-size:12.5px;color:var(--fg-muted);margin:2px 0 8px">Осталось: ${items.length}</div>` + items.map(x=>`<div class="ap-item" data-id="${esc(x.id)}">
       ${x.video?`<video class="ap-media" src="${esc(x.video)}" poster="${esc(x.image||'')}" controls playsinline preload="none"></video>`:(x.image?`<img class="ap-media" src="${esc(x.image)}" alt="" loading="lazy">`:'')}
       <div class="ap-t">${esc(x.title)}</div>
@@ -659,7 +666,7 @@ async function openMergeSheet(){
     ${x.cat?`<div class="ap-s">${esc(x.cat)}${x.cap?' · до '+esc(x.cap)+' гостей':''}</div>`:''}
     ${x.ig?`<div class="ap-s">@${esc(String(x.ig).replace(/^.*instagram\.com\//,'').replace(/[/?].*$/,''))}</div>`:''}</div>`;
   function draw(){
-    if(!items.length){ body.innerHTML = `<div class="empty">Всё разобрано. Спасибо!</div>`; return; }
+    if(!items.length){ body.innerHTML = `<div class="empty">Всё разобрано. Спасибо!</div>`; closeMsgsByAction('merges'); return; }
     body.innerHTML = `<div style="font-size:12.5px;color:var(--fg-muted);margin:2px 0 8px">Осталось: ${items.length}</div>` + items.map(r=>{ const x = r.data;
       return `<div class="ap-item" data-id="${esc(r.id)}">
         <div class="mg-pair">${side(x.a||{}, 'В базе ('+(x.a&&x.a.src||'')+')')}${side(x.b||{}, 'Из Eventer')}</div>
@@ -3619,7 +3626,7 @@ boot();
 
 // Автообновление (13.11.2026): установленное на iPhone приложение держит старую версию страницы.
 // При каждом возврате в приложение сверяем версию с сервером и перезагружаемся, если вышла новая.
-const APP_VERSION = '202611132035';
+const APP_VERSION = '202611171120';
 async function checkAppVersion(){
   try{
     const r = await fetch('version.json?t=' + Date.now(), { cache: 'no-store' });
