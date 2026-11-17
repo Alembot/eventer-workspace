@@ -267,6 +267,15 @@ body.modal-open{position:fixed;left:0;right:0;overflow:hidden}
 /* Left-menu unread dot hidden; unread message state is preserved. */
 .sheet-chip{position:relative}
 .sheet-chip.has-msg::after{content:'';position:absolute;top:4px;right:6px;width:7px;height:7px;border-radius:50%;background:var(--bad)}
+.nt-dirs{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 8px}
+.nt-dirs button,.nt-info{font:inherit;font-size:12.5px;border:1px solid var(--border);background:transparent;color:var(--fg);border-radius:999px;padding:4px 10px;cursor:pointer}
+.nt-dirs button.on{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.nt-sec{margin-top:8px}
+.nt-h{font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--fg-muted);margin:6px 0 2px}
+.nt-tag{background:#e91e8c;color:#fff;border-radius:999px;padding:1px 7px;font-size:10.5px;letter-spacing:0;text-transform:none}
+.nt-q{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 0;border-bottom:1px solid var(--border);cursor:pointer}
+.nt-q:last-child{border-bottom:none}
+.nt-n{min-width:28px;text-align:center;background:#e91e8c;color:#fff;border-radius:999px;padding:3px 9px;font-weight:600;font-size:13px}
 .msg-home-item{padding:8px 0;border-bottom:1px solid var(--border);cursor:pointer}
 .msg-home-item:last-child{border-bottom:none}
 .msg-home-item .snippet{white-space:normal}
@@ -527,31 +536,70 @@ function refreshUnreadBadges(){
   const homeCard = document.getElementById('homeMsgCard');
   if(homeCard) renderHomeMsgCard(homeCard);
 }
-// Лента «Мне» (13.11.2026, решение Кайрата): только то, где нужно его решение или действие.
-// Переписка менеджеров между собой в интерфейсе не показывается — она остаётся в базе для самих менеджеров.
-// Формат сообщения: forKairat:true, title (что сделать), author (от кого), why (зачем), url (кнопка «Открыть»), text (подробности).
+// Центр уведомлений «Мне» (17.11.2026, решение Кайрата): одно окно для всего, где нужно его действие.
+// Контракт для ЛЮБОГО источника (робот, менеджер, CRM, банк — их будет 100+): запись в rows, collection 'messages':
+//   forKairat:true, title (что сделать, с глагола), type ('pay'|'sign'|'approve'|'decide'|'info'), direction (slug направления),
+//   source (кто прислал, напр. 'reels-robot'), author, why, text, url (кнопка «Открыть») или action (ключ очереди ниже), ts.
+// Очереди (QUEUES) — живые источники: показываются группой с числом «ждут» и исчезают сами, когда разобраны.
+// Сообщения с action очереди не дублируются — их заменяет строка очереди.
+const NT_TYPES = [
+  ['pay','Оплатить','срочно'], ['sign','Подписать','срочно'], ['approve','Согласовать',''], ['decide','Решить',''], ['info','К сведению','']
+];
+const QUEUES = [
+  { key:'reels', title:'Reels для витрины', type:'approve', dir:'afisha', count: async()=> ((await approveCall('GET','reels')).items||[]).length, open: ()=> openApproveSheet('reels') },
+  { key:'events', title:'События для витрины', type:'approve', dir:'afisha', count: async()=> ((await approveCall('GET','events')).items||[]).length, open: ()=> openApproveSheet('events') },
+  { key:'experiences', title:'Впечатления для витрины', type:'approve', dir:'afisha', count: async()=> ((await approveCall('GET','experiences')).items||[]).length, open: ()=> openApproveSheet('experiences') },
+  { key:'scout', title:'Новые источники Афиши', type:'decide', dir:'afisha', count: async()=> ((await scoutCall('GET')).items||[]).length, open: ()=> openScoutSheet() },
+  { key:'merges', title:'Одно и то же место?', type:'decide', dir:'eventchat', count: async()=>{ const { data, error } = await sb.from('rows').select('id,data').eq('collection','merge_review'); if(error) throw error; return (data||[]).filter(r=> !r.data.decision).length; }, open: ()=> openMergeSheet() }
+];
+const qCounts = {}; let qAt = 0, qBusy = false, ntDir = 'all', ntInfoOpen = false;
+async function loadQueueCounts(force){
+  if(qBusy || (!force && Date.now()-qAt < 60000)) return;
+  qBusy = true; qAt = Date.now();
+  await Promise.all(QUEUES.map(async q=>{ try{ qCounts[q.key] = await q.count(); }catch(e){ if(!(q.key in qCounts)) qCounts[q.key] = null; } }));
+  qBusy = false;
+  const el = document.getElementById('homeMsgCard'); if(el) renderHomeMsgCard(el, true);
+}
 const msgOpen = new Set();
-function renderHomeMsgCard(el){
+function renderHomeMsgCard(el, fromLoad){
+  if(!fromLoad) loadQueueCounts(false);
   const esc = v=> String(v??'').replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-  const list = lsRead('messages').filter(m=> m.forKairat && m.status!=='done').sort((a,b)=>(b.ts||0)-(a.ts||0));
-  const head = `<div class="side-card-head"><div class="modal-label">Мне${list.length?` · ${list.length}`:''}</div></div>`;
-  if(!list.length){ el.innerHTML = head + `<div class="empty">Ничего не ждёт вашего решения.</div>`; return; }
-  el.innerHTML = head + `<div class="list">${list.map(m=>`
-    <div class="msg-home-item" data-id="${esc(m.id)}">
-      <div class="who"><b>${esc(m.title||m.text)}</b></div>
-      <div class="snippet">${esc(m.author||'')}${m.why?' · '+esc(m.why):''}</div>
-      ${msgOpen.has(m.id) && m.text && m.title ? `<div class="msg-more">${esc(m.text)}</div>` : ''}
-      <div class="msg-acts">${m.action==='scout'?`<button class="btn" data-scout="1">Открыть</button>`:m.action==='merges'?`<button class="btn" data-merges="1">Открыть</button>`:(m.action==='events'||m.action==='reels'||m.action==='experiences')?`<button class="btn" data-approve="${esc(m.action)}">Открыть</button>`:(m.url?`<a class="btn" href="${esc(m.url)}" target="_blank" rel="noopener">Открыть</a>`:'')}<button class="btn ghost" data-done="${esc(m.id)}">Готово</button></div>
-    </div>`).join('')}</div>`;
+  const qKeys = new Set(QUEUES.map(q=> q.key));
+  const dirName = slug=> (DIRECTIONS.find(d=> d.slug===slug)||{}).name || '';
+  const msgs = lsRead('messages').filter(m=> m.forKairat && m.status!=='done' && !qKeys.has(m.action))
+    .map(m=> ({ kind:'msg', m, type: NT_TYPES.some(t=> t[0]===m.type) ? m.type : 'approve', dir: m.direction||'', ts: m.ts||0 }));
+  const queues = QUEUES.filter(q=> qCounts[q.key]>0).map(q=> ({ kind:'queue', q, type:q.type, dir:q.dir, n:qCounts[q.key] }));
+  const all = [...queues, ...msgs];
+  const dirs = [...new Set(all.map(x=> x.dir).filter(Boolean))];
+  const view = ntDir==='all' ? all : all.filter(x=> x.dir===ntDir);
+  const waiting = queues.reduce((a,x)=> a+x.n, 0) + msgs.filter(x=> x.type!=='info').length;
+  const head = `<div class="side-card-head"><div class="modal-label">Мне${waiting?` · ${waiting}`:''}</div>${qBusy&&!qAt?'':''}</div>`;
+  if(!all.length){ el.innerHTML = head + `<div class="empty">${qAt?'Ничего не ждёт вашего решения.':'Проверяю…'}</div>`; return; }
+  const chips = dirs.length>1 ? `<div class="nt-dirs"><button class="${ntDir==='all'?'on':''}" data-ntdir="all">Все</button>${dirs.map(d=>`<button class="${ntDir===d?'on':''}" data-ntdir="${esc(d)}">${esc(dirName(d)||d)}</button>`).join('')}</div>` : '';
+  const row = x=> x.kind==='queue'
+    ? `<div class="nt-q" data-q="${esc(x.q.key)}"><div><b>${esc(x.q.title)}</b><div class="snippet">${esc(dirName(x.dir))}</div></div><span class="nt-n">${x.n}</span></div>`
+    : `<div class="msg-home-item" data-id="${esc(x.m.id)}">
+      <div class="who"><b>${esc(x.m.title||x.m.text)}</b></div>
+      <div class="snippet">${esc([x.m.author, dirName(x.dir), x.m.why].filter(Boolean).join(' · '))}</div>
+      ${msgOpen.has(x.m.id) && x.m.text && x.m.title ? `<div class="msg-more">${esc(x.m.text)}</div>` : ''}
+      <div class="msg-acts">${x.m.url?`<a class="btn" href="${esc(x.m.url)}" target="_blank" rel="noopener">Открыть</a>`:''}<button class="btn ghost" data-done="${esc(x.m.id)}">${x.type==='info'?'Прочитал':'Готово'}</button></div>
+    </div>`;
+  const sections = NT_TYPES.map(([t,label,tag])=>{
+    const items = view.filter(x=> x.type===t).sort((a,b)=> (b.ts||0)-(a.ts||0));
+    if(!items.length) return '';
+    if(t==='info') return `<div class="nt-sec"><button class="nt-info" data-ntinfo="1">${label} · ${items.length} ${ntInfoOpen?'▴':'▾'}</button>${ntInfoOpen?`<div class="list">${items.map(row).join('')}</div>`:''}</div>`;
+    return `<div class="nt-sec"><div class="nt-h">${label}${tag?` <span class="nt-tag">${tag}</span>`:''}</div><div class="list">${items.map(row).join('')}</div></div>`;
+  }).join('');
+  el.innerHTML = head + chips + sections;
+  el.querySelectorAll('[data-ntdir]').forEach(b=> b.onclick = ()=>{ ntDir = b.dataset.ntdir; renderHomeMsgCard(el, true); });
+  el.querySelectorAll('[data-ntinfo]').forEach(b=> b.onclick = ()=>{ ntInfoOpen = !ntInfoOpen; renderHomeMsgCard(el, true); });
+  el.querySelectorAll('.nt-q').forEach(it=> it.onclick = ()=>{ const q = QUEUES.find(z=> z.key===it.dataset.q); if(q) q.open(); });
   el.querySelectorAll('.msg-home-item').forEach(it=>{
     it.addEventListener('click', e=>{
       if(e.target.closest('a,button')) return;
-      const id = it.dataset.id; msgOpen.has(id) ? msgOpen.delete(id) : msgOpen.add(id); renderHomeMsgCard(el);
+      const id = it.dataset.id; msgOpen.has(id) ? msgOpen.delete(id) : msgOpen.add(id); renderHomeMsgCard(el, true);
     });
   });
-  el.querySelectorAll('[data-scout]').forEach(b=> b.addEventListener('click', openScoutSheet));
-  el.querySelectorAll('[data-merges]').forEach(b=> b.addEventListener('click', openMergeSheet));
-  el.querySelectorAll('[data-approve]').forEach(b=> b.addEventListener('click', ()=> openApproveSheet(b.dataset.approve)));
   el.querySelectorAll('[data-done]').forEach(b=>{
     b.addEventListener('click', ()=>{
       const id = b.dataset.done;
@@ -561,8 +609,11 @@ function renderHomeMsgCard(el){
     });
   });
 }
+// окно согласования закрыто — пересчитать очереди
+function sheetClosed(){ loadQueueCounts(true); }
 // 17.11.2026: согласование разобрано до конца — карточка в «Мне» закрывается сама, без кнопки «Готово».
 function closeMsgsByAction(action){
+  if(action in qCounts){ qCounts[action] = 0; }
   const ids = lsRead('messages').filter(m=> m.forKairat && m.status!=='done' && m.action===action).map(m=> m.id);
   if(!ids.length) return;
   lsWrite('messages', lsRead('messages').map(m=> ids.includes(m.id) ? Object.assign({}, m, { status:'done', doneAt: Date.now() }) : m));
@@ -585,7 +636,7 @@ async function openScoutSheet(){
   const bg = document.createElement('div'); bg.className='modal-backdrop';
   bg.innerHTML = `<div class="modal-card"><div class="modal-head"><div><div class="modal-label">Новые источники Афиши</div><div class="scout-sub" style="font-size:12.5px;color:var(--fg-muted);margin-top:4px">Аккаунты, которых нет у нас и у конкурентов. «Подключить» — робот начнёт читать их посты.</div></div><button class="modal-close" aria-label="Закрыть">×</button></div><div class="modal-body"><div class="empty">Загрузка…</div></div></div>`;
   document.body.appendChild(bg);
-  const close = ()=> bg.remove();
+  const close = ()=>{ bg.remove(); sheetClosed(); };
   bg.querySelector('.modal-close').onclick = close; bg.addEventListener('click', e=>{ if(e.target===bg) close(); });
   const body = bg.querySelector('.modal-body');
   let items = [], cat = 'Все';
@@ -626,7 +677,7 @@ async function openApproveSheet(kind){
   const bg = document.createElement('div'); bg.className='modal-backdrop';
   bg.innerHTML = `<div class="modal-card"><div class="modal-head"><div><div class="modal-label">${title}</div><div style="font-size:12.5px;color:var(--fg-muted);margin-top:4px">Робот уже отобрал. Вам — только «Да» или «Нет»: на полки попадает лишь то, что вы взяли.</div></div><button class="modal-close" aria-label="Закрыть">×</button></div><div class="modal-body"><div class="empty">Загрузка…</div></div></div>`;
   document.body.appendChild(bg);
-  const close = ()=> bg.remove();
+  const close = ()=>{ bg.remove(); sheetClosed(); };
   bg.querySelector('.modal-close').onclick = close; bg.addEventListener('click', e=>{ if(e.target===bg) close(); });
   const body = bg.querySelector('.modal-body');
   let items = [];
@@ -657,7 +708,7 @@ async function openMergeSheet(){
   const bg = document.createElement('div'); bg.className='modal-backdrop';
   bg.innerHTML = `<div class="modal-card"><div class="modal-head"><div><div class="modal-label">Одно и то же место?</div><div style="font-size:12.5px;color:var(--fg-muted);margin-top:4px">Робот не уверен, одна это площадка или разные. «Одно и то же» — склеим в одну карточку, «Разные» — оставим две.</div></div><button class="modal-close" aria-label="Закрыть">×</button></div><div class="modal-body"><div class="empty">Загрузка…</div></div></div>`;
   document.body.appendChild(bg);
-  const close = ()=> bg.remove();
+  const close = ()=>{ bg.remove(); sheetClosed(); };
   bg.querySelector('.modal-close').onclick = close; bg.addEventListener('click', e=>{ if(e.target===bg) close(); });
   const body = bg.querySelector('.modal-body');
   let items = [];
@@ -3626,7 +3677,7 @@ boot();
 
 // Автообновление (13.11.2026): установленное на iPhone приложение держит старую версию страницы.
 // При каждом возврате в приложение сверяем версию с сервером и перезагружаемся, если вышла новая.
-const APP_VERSION = '202611171120';
+const APP_VERSION = '202611171135';
 async function checkAppVersion(){
   try{
     const r = await fetch('version.json?t=' + Date.now(), { cache: 'no-store' });
