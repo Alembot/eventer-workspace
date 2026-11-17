@@ -273,6 +273,9 @@ body.modal-open{position:fixed;left:0;right:0;overflow:hidden}
 .ap-r{font:inherit;font-size:12.5px;text-align:left;border:1px solid var(--border);background:transparent;color:var(--fg);border-radius:999px;padding:5px 10px;cursor:pointer}
 .ap-r.on{background:#e91e8c;border-color:#e91e8c;color:#fff}
 .ap-note{width:100%;box-sizing:border-box;font:inherit;font-size:13px;border:1px solid var(--border);border-radius:10px;padding:8px;background:transparent;color:var(--fg);margin-bottom:6px}
+.sc-g{border-top:1px solid var(--border);padding-top:8px;margin-top:8px}
+.sc-gh{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.sc-t{font:inherit;font-weight:600;background:none;border:none;color:var(--fg);padding:0;cursor:pointer;text-align:left}
 .nt-dirs{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 8px}
 .nt-dirs button,.nt-info{font:inherit;font-size:12.5px;border:1px solid var(--border);background:transparent;color:var(--fg);border-radius:999px;padding:4px 10px;cursor:pointer}
 .nt-dirs button.on{background:var(--fg);color:var(--bg);border-color:var(--fg)}
@@ -638,31 +641,51 @@ async function scoutCall(method, body){
   return j;
 }
 async function openScoutSheet(){
+  // 17.11.2026: источники разложены роботом по регулярности (решение Кайрата afisha_dec_20261117_sources):
+  // регулярные — подключить пачкой, спорные — решает Кайрат, эпизодические — в базу и в список приглашений, остальное — пропустить.
   const esc = v=> String(v??'').replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
   const bg = document.createElement('div'); bg.className='modal-backdrop';
-  bg.innerHTML = `<div class="modal-card"><div class="modal-head"><div><div class="modal-label">Новые источники Афиши</div><div class="scout-sub" style="font-size:12.5px;color:var(--fg-muted);margin-top:4px">Аккаунты, которых нет у нас и у конкурентов. «Подключить» — робот начнёт читать их посты.</div></div><button class="modal-close" aria-label="Закрыть">×</button></div><div class="modal-body"><div class="empty">Загрузка…</div></div></div>`;
+  bg.innerHTML = `<div class="modal-card"><div class="modal-head"><div><div class="modal-label">Новые источники Афиши</div><div class="scout-sub" style="font-size:12.5px;color:var(--fg-muted);margin-top:4px">Робот посчитал, как часто аккаунт анонсирует события (за 3 месяца). Следим только за регулярными.</div></div><button class="modal-close" aria-label="Закрыть">×</button></div><div class="modal-body"><div class="empty">Загрузка…</div></div></div>`;
   document.body.appendChild(bg);
   const close = ()=>{ bg.remove(); sheetClosed(); };
   bg.querySelector('.modal-close').onclick = close; bg.addEventListener('click', e=>{ if(e.target===bg) close(); });
   const body = bg.querySelector('.modal-body');
-  let items = [], cat = 'Все';
+  let items = []; const open = new Set(['review','regular']);
+  const pm = x=> x.per_month==null ? '' : x.per_month>=1 ? `≈ ${String(x.per_month).replace('.',',')} анонса в месяц` : x.per_month>0 ? `≈ 1 анонс в ${Math.round(1/x.per_month)} мес.` : 'анонсов нет';
+  const GROUPS = [
+    { key:'review', title:'Спорные — решите вы', hint:'Непонятно: события это или реклама, или не Алматы.', tiers:['review'], bulk:null, row:'full' },
+    { key:'regular', title:'Регулярные — подключить', hint:'2 и больше анонса в месяц. Робот будет читать раз в 2 дня.', tiers:['regular'], bulk:['approve','Подключить всех'], row:'no' },
+    { key:'episodic', title:'Эпизодические — в базу и пригласить', hint:'Раз в 1–2 месяца. Один раз снимем в базу, менеджеры предложат добавлять события самим.', tiers:['episodic'], bulk:['episodic','Отправить всех'], row:'no' },
+    { key:'skip', title:'Пропустить', hint:'Анонсов нет или не наш профиль (магазин, услуга, курсы, агрегатор).', tiers:['none','skip'], bulk:['reject','Пропустить всех'], row:'no' },
+    { key:'wait', title:'Робот ещё проверяет', hint:'Читает посты за 3 месяца. Обновится сам.', tiers:[null], bulk:null, row:'full' }
+  ];
+  const card = (x, mode)=> `<div class="scout-item" data-h="${esc(x.handle)}">
+      <div><b>${esc(x.title||'@'+x.handle)}</b> <span class="scout-h">@${esc(x.handle)}</span></div>
+      <div class="scout-k">${esc([x.kind, x.category, pm(x)].filter(Boolean).join(' · '))}</div>
+      ${(x.tier_why||x.why)?`<div class="scout-why">${esc(x.tier_why||x.why)}</div>`:''}
+      <div class="msg-acts">${mode==='full'?`<button class="btn" data-a="approve">Подключить</button><button class="btn ghost" data-a="reject">Нет</button>`:`<button class="btn ghost" data-a="reject">Нет, не надо</button>`}<a class="btn ghost" href="https://www.instagram.com/${esc(x.handle)}/" target="_blank" rel="noopener">Instagram</a></div>
+    </div>`;
+  async function act(handles, action, btns){
+    btns.forEach(z=> z.disabled = true);
+    try{ await scoutCall('POST', { handles, action }); items = items.filter(x=> !handles.includes(x.handle)); draw(); }
+    catch(e){ btns.forEach(z=> z.disabled = false); alert('Не сохранилось: '+e.message); }
+  }
   function draw(){
     if(!items.length){ body.innerHTML = `<div class="empty">Всё разобрано.</div>`; closeMsgsByAction('scout'); return; }
-    const cats = ['Все', ...new Set(items.map(x=> x.category||'Другое'))];
-    const view = cat==='Все' ? items : items.filter(x=> (x.category||'Другое')===cat);
-    body.innerHTML = `<div class="scout-cats">${cats.map(c=>`<button class="${c===cat?'on':''}" data-cat="${esc(c)}">${esc(c)}${c==='Все'?' '+items.length:''}</button>`).join('')}</div>` +
-      view.map(x=>`<div class="scout-item" data-h="${esc(x.handle)}">
-        <div><b>${esc(x.title||'@'+x.handle)}</b> <span class="scout-h">@${esc(x.handle)}</span></div>
-        <div class="scout-k">${esc(x.kind||'')} · ${esc(x.category||'')} · упомянули ${x.mentions} раз(а)</div>
-        <div class="scout-why">${esc(x.why||'')}</div>
-        <div class="msg-acts"><button class="btn" data-a="1">Подключить</button><button class="btn ghost" data-a="0">Нет</button><a class="btn ghost" href="https://www.instagram.com/${esc(x.handle)}/" target="_blank" rel="noopener">Instagram</a></div>
-      </div>`).join('');
-    body.querySelectorAll('[data-cat]').forEach(b=> b.onclick = ()=>{ cat = b.dataset.cat; draw(); });
-    body.querySelectorAll('.scout-item').forEach(it=> it.querySelectorAll('[data-a]').forEach(b=> b.onclick = async ()=>{
-      const h = it.dataset.h; it.querySelectorAll('button').forEach(z=> z.disabled = true);
-      try{ await scoutCall('POST', { handle:h, approve: b.dataset.a==='1' }); items = items.filter(x=> x.handle!==h); draw(); }
-      catch(e){ it.querySelectorAll('button').forEach(z=> z.disabled = false); alert('Не сохранилось: '+e.message); }
-    }));
+    body.innerHTML = GROUPS.map(g=>{
+      const list = items.filter(x=> g.tiers.includes(x.tier ?? null));
+      if(!list.length) return '';
+      const on = open.has(g.key);
+      return `<div class="sc-g" data-g="${g.key}"><div class="sc-gh"><button class="sc-t" data-tg="${g.key}">${esc(g.title)} · ${list.length} ${on?'▴':'▾'}</button>${g.bulk?`<button class="btn" data-bulk="${g.key}">${esc(g.bulk[1])}</button>`:''}</div>
+        <div class="scout-k" style="margin:2px 0 6px">${esc(g.hint)}</div>${on?list.map(x=> card(x, g.row)).join(''):''}</div>`;
+    }).join('');
+    body.querySelectorAll('[data-tg]').forEach(b=> b.onclick = ()=>{ const k = b.dataset.tg; open.has(k) ? open.delete(k) : open.add(k); draw(); });
+    body.querySelectorAll('[data-bulk]').forEach(b=> b.onclick = ()=>{
+      const g = GROUPS.find(z=> z.key===b.dataset.bulk); const hs = items.filter(x=> g.tiers.includes(x.tier ?? null)).map(x=> x.handle);
+      if(!confirm(`${g.bulk[1]}: ${hs.length} аккаунтов?`)) return;
+      act(hs, g.bulk[0], [b]);
+    });
+    body.querySelectorAll('.scout-item').forEach(it=> it.querySelectorAll('[data-a]').forEach(b=> b.onclick = ()=> act([it.dataset.h], b.dataset.a, [...it.querySelectorAll('button')])));
   }
   try{ items = (await scoutCall('GET')).items || []; draw(); }
   catch(e){ body.innerHTML = `<div class="empty">Не загрузилось: ${esc(e.message)}</div>`; }
@@ -3704,7 +3727,7 @@ boot();
 
 // Автообновление (13.11.2026): установленное на iPhone приложение держит старую версию страницы.
 // При каждом возврате в приложение сверяем версию с сервером и перезагружаемся, если вышла новая.
-const APP_VERSION = '202611171150';
+const APP_VERSION = '202611171215';
 async function checkAppVersion(){
   try{
     const r = await fetch('version.json?t=' + Date.now(), { cache: 'no-store' });
