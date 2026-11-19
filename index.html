@@ -3693,6 +3693,28 @@ async function boot(){
     session = data && data.session;
   }catch(e){ console.error('getSession failed', e); }
 
+  // Вход по личной ссылке Кайрата без пароля (19.11.2026): ?k=… запоминается на устройстве.
+  if(!session){
+    let k = '';
+    try{
+      const u = new URL(location.href); const q = u.searchParams.get('k');
+      if(q){ localStorage.setItem('ws:key', q); u.searchParams.delete('k'); history.replaceState(null, '', u.pathname + u.search + u.hash); }
+      k = localStorage.getItem('ws:key') || '';
+      if(sessionStorage.getItem('ws:nokey')){ sessionStorage.removeItem('ws:nokey'); k = ''; }
+    }catch(e){}
+    if(k){
+      try{
+        showAuth('Входим…');
+        const r = await fetch(SUPABASE_URL + '/functions/v1/ws-key-login', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ key: k }) });
+        const d = await r.json().catch(()=>null);
+        if(r.ok && d && d.access_token){
+          const { data } = await sb.auth.setSession({ access_token: d.access_token, refresh_token: d.refresh_token });
+          session = data && data.session;
+        } else if(r.status === 403){ try{ localStorage.removeItem('ws:key'); }catch(e){} }
+      }catch(e){ console.error('key login failed', e); }
+    }
+  }
+
   if(session){
     await startAppWithCloud();
   } else {
@@ -3704,6 +3726,7 @@ async function boot(){
     if(event === 'SIGNED_IN' && sess && db !== supaShim){
       startAppWithCloud();
     } else if(event === 'SIGNED_OUT'){
+      try{ sessionStorage.setItem('ws:nokey','1'); }catch(e){}
       location.reload();
     }
   });
@@ -3722,7 +3745,7 @@ boot();
 
 // Автообновление (13.11.2026): установленное на iPhone приложение держит старую версию страницы.
 // При каждом возврате в приложение сверяем версию с сервером и перезагружаемся, если вышла новая.
-const APP_VERSION = '202611171225';
+const APP_VERSION = '202611190710';
 async function checkAppVersion(){
   try{
     const r = await fetch('version.json?t=' + Date.now(), { cache: 'no-store' });
