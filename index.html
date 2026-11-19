@@ -866,6 +866,7 @@ function parseRoute(){
   if(h==='home'){ state.dir = 'home'; state.tab = null; return; }
   if(h==='team'){ state.dir = 'team'; state.tab = null; return; }
   if(h==='ideas'){ state.dir = 'ideas'; state.tab = null; return; }
+  if(h==='processes' || h.startsWith('processes/')){ state.dir = 'processes'; state.tab = h.split('/')[1] || 'requests'; return; }
   if(h==='workspace' || h.startsWith('workspace/')){
     state.dir = 'workspace'; state.tab = h.split('/')[1] || 'decisions'; return;
   }
@@ -914,10 +915,11 @@ function renderRail(){
     <li class="rail-item ${d.slug===state.dir?'active':''}" data-dir="${d.slug}">
       <span class="n">${d.n}</span><span>${d.name}</span>
     </li>`; }).join('');
+  if(isAdmin()) html += `<li class="rail-sep" style="list-style:none;margin:14px 0 4px;padding:0 12px;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--fg-muted);pointer-events:none">Общее</li><li class="rail-item ${state.dir==='processes'?'active':''}" data-dir="processes"><span class="n">⇄</span><span>Процессы</span></li>`;
   ul.innerHTML = html;
   ul.querySelectorAll('.rail-item').forEach(el=>{
     el.addEventListener('click', ()=>{
-      location.hash = el.dataset.dir==='team' ? '#team' : '#'+el.dataset.dir+'/tasks';
+      location.hash = el.dataset.dir==='team' ? '#team' : el.dataset.dir==='processes' ? '#processes/requests' : '#'+el.dataset.dir+'/tasks';
     });
   });
   const brand = document.getElementById('railBrand');
@@ -1557,6 +1559,159 @@ async function renderTeam(panel){
   });
 }
 
+// ---------- Процессы (19.11.2026, решение Кайрата): раздел «Процессы» — вкладки «Заявки» и «Регламенты».
+// Первый процесс — аккредитация контрагентов. Маршрут: менеджер → бухгалтерия → робот-комплаенс → финансовый директор
+// (пока его функции выполняет финансовый менеджер). Возврат/отказ — только с причиной, заявка возвращается автору.
+// Данные: rows, collection 'counterparties'. Схема маршрута и роли — в документе «Процессы Workspace».
+const PROC_DOC_URL = 'https://claude.ai/artifact/CN9iEJqq2AMYp4Xo82m1UL';
+const CP_STAGES = {
+  accounting:{label:'Проверка бухгалтерии', cls:'warn'},
+  robot:{label:'Проверка робота-комплаенса', cls:'warn'},
+  finance:{label:'Решение финансового директора', cls:'warn'},
+  accredited:{label:'Аккредитован', cls:'good'},
+  returned:{label:'Возвращён автору', cls:'bad'}
+};
+const CP_FILTERS = [['work','В работе'],['accredited','Аккредитованы'],['returned','Возвращены'],['all','Все']];
+const PROC_REGULATIONS = [
+  {title:'Аккредитация контрагента', route:['Менеджер вносит данные','Бухгалтерия: реквизиты, адреса, налоги, НДС','Робот-комплаенс: риски, долги, сфера, сайт, отзывы','Финансовый директор: согласовать или отклонить','Контрагент аккредитован'], note:'Ошибка в данных или отказ возвращает карточку менеджеру, причина обязательна.'},
+  {title:'Заявка на оплату', route:['Менеджер отправляет заявку','Автоматическая проверка: контрагент, счёт, договор, бюджет','Руководитель направления','Финансовый директор','Бухгалтерия: поручение и закрывающие документы','Генеральный директор','Бухгалтерия проводит платёж'], note:'Любой отказ возвращает заявку автору, причина обязательна. Нет закрывающих документов (после предоплаты) — новые платежи контрагенту блокируются.', status:'скоро'},
+  {title:'Служебная записка вне бюджета', route:['Менеджер пишет записку: обоснование, сумма, статья','Финансовый директор','Генеральный директор','Решение по бюджету: изменить бюджет или в рамках лимита','Обычная заявка на оплату со ссылкой на записку'], note:'Отказ любого согласующего возвращает записку автору, причина обязательна.', status:'скоро'}
+];
+function procEsc(v){ return String(v??'').replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function procWho(){ return (currentProfile && currentProfile.email) || 'Администратор'; }
+function procDate(ts){ try{ return new Date(ts).toLocaleString('ru-RU',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}); }catch(e){ return ''; } }
+
+function procModal(title, bodyHtml, footerHtml){
+  const bg = document.createElement('div'); bg.className='modal-backdrop';
+  bg.innerHTML = `<div class="modal-card"><div class="modal-head"><div><div class="modal-label" style="margin-bottom:0">${title}</div></div><button class="modal-close" aria-label="Закрыть">×</button></div><div class="modal-body">${bodyHtml}</div>${footerHtml?`<div class="modal-footer">${footerHtml}</div>`:''}</div>`;
+  document.body.appendChild(bg);
+  const close = ()=>bg.remove();
+  bg.querySelector('.modal-close').onclick = close;
+  bg.addEventListener('click', e=>{ if(e.target===bg) close(); });
+  return { bg, close };
+}
+function procAskReason(title, hint, onOk){
+  const m = procModal(title, `<div class="modal-field"><div class="modal-label">Причина (обязательно)</div><textarea id="procReason" rows="4" placeholder="${procEsc(hint)}"></textarea><div id="procReasonErr" style="color:var(--bad);font-size:12px;margin-top:6px;display:none">Без причины отказать нельзя</div></div>`,
+    `<button class="btn ghost" id="procReasonCancel">Отмена</button><button class="btn" id="procReasonOk">Отправить</button>`);
+  m.bg.querySelector('#procReasonCancel').onclick = m.close;
+  m.bg.querySelector('#procReasonOk').onclick = ()=>{
+    const v = m.bg.querySelector('#procReason').value.trim();
+    if(!v){ m.bg.querySelector('#procReasonErr').style.display='block'; return; }
+    m.close(); onOk(v);
+  };
+}
+
+function openCounterpartyForm(rec){
+  const d = rec ? rec.data : {};
+  const f = (id,label,val,ph)=>`<div class="modal-field"><div class="modal-label">${label}</div><input id="${id}" value="${procEsc(val||'')}" placeholder="${procEsc(ph||'')}" style="width:100%;background:var(--surface-2);border:1px solid var(--border);border-radius:7px;color:var(--fg);padding:8px 10px;font:inherit"></div>`;
+  const sel = (id,label,opts,val)=>`<div class="modal-field"><div class="modal-label">${label}</div><select id="${id}">${opts.map(([v,t])=>`<option value="${v}" ${val===v?'selected':''}>${t}</option>`).join('')}</select></div>`;
+  const body = (rec && d.stage==='returned' ? `<div class="banner" style="margin-bottom:12px"><b>Возвращено:</b> ${procEsc(d.returnReason||'')}<br><span style="font-size:12px;color:var(--fg-muted)">${procEsc(d.returnedBy||'')}</span></div>` : '')
+    + f('cpName','Наименование',d.name,'ТОО «…»')
+    + `<div class="modal-row"><div style="flex:1;min-width:180px">${f('cpBin','БИН / ИИН',d.bin)}</div><div style="flex:1;min-width:180px">${f('cpBik','БИК',d.bik)}</div></div>`
+    + f('cpBank','Банк',d.bank) + f('cpIban','Расчётный счёт (IBAN)',d.iban) + f('cpAddr','Юридический адрес',d.address)
+    + `<div class="modal-row"><div style="flex:1;min-width:180px">${sel('cpVat','НДС',[['yes','Плательщик НДС'],['no','Не плательщик']],d.vat||'yes')}</div><div style="flex:1;min-width:180px">${sel('cpRes','Резидентство',[['res','Резидент РК'],['nonres','Нерезидент']],d.resident||'res')}</div><div style="flex:1;min-width:180px">${sel('cpKind','Тип',[['one','Разовый'],['perm','Постоянный']],d.kind||'one')}</div></div>`
+    + f('cpSphere','Чем занимается (что поставляет)',d.sphere,'например, компьютерная техника')
+    + f('cpSite','Сайт / Instagram',d.site) + f('cpDrive','Ссылка на документы в Google Диске',d.driveUrl,'https://drive.google.com/…')
+    + `<div id="cpErr" style="color:var(--bad);font-size:12px;margin-bottom:10px;display:none"></div>`;
+  const m = procModal(rec?'Контрагент':'Новый контрагент', body, `<button class="btn ghost" id="cpCancel">Отмена</button><button class="btn" id="cpSave">${rec&&d.stage==='returned'?'Исправил, отправить заново':'Отправить на аккредитацию'}</button>`);
+  m.bg.querySelector('#cpCancel').onclick = m.close;
+  m.bg.querySelector('#cpSave').onclick = async ()=>{
+    const g = id=>m.bg.querySelector('#'+id).value.trim();
+    const name=g('cpName'), bin=g('cpBin'), iban=g('cpIban');
+    const err = m.bg.querySelector('#cpErr');
+    if(!name || !bin || !iban){ err.textContent='Заполните наименование, БИН и расчётный счёт'; err.style.display='block'; return; }
+    const now = Date.now();
+    const base = { name, bin, bik:g('cpBik'), bank:g('cpBank'), iban, address:g('cpAddr'), vat:g('cpVat'), resident:g('cpRes'), kind:g('cpKind'), sphere:g('cpSphere'), site:g('cpSite'), driveUrl:g('cpDrive'), direction:'finance' };
+    const col = db.collection('counterparties');
+    if(rec){
+      const hist = (d.history||[]).concat([{ts:now, who:procWho(), act:'Исправлено и отправлено заново'}]);
+      await col.doc(rec.id).update({ ...base, stage:'accounting', history:hist, returnReason:null, returnedBy:null, ts:now });
+    } else {
+      await col.add({ ...base, stage:'accounting', author:procWho(), history:[{ts:now, who:procWho(), act:'Отправлено на аккредитацию'}], ts:now });
+    }
+    m.close();
+  };
+}
+
+function openCounterpartyCard(rec){
+  const d = rec.data, st = CP_STAGES[d.stage]||{label:d.stage,cls:''};
+  const row = (k,v)=> v ? `<div style="display:flex;gap:10px;padding:5px 0;border-bottom:1px solid var(--border);font-size:13px"><div style="width:150px;flex:none;color:var(--fg-muted)">${k}</div><div style="flex:1;word-break:break-word">${v}</div></div>` : '';
+  const link = u=> u ? `<a href="${procEsc(u)}" target="_blank" rel="noopener">${procEsc(u)}</a>` : '';
+  const hist = (d.history||[]).slice().reverse().map(h=>`<div style="font-size:12.5px;padding:4px 0"><span style="color:var(--fg-muted)">${procDate(h.ts)} · ${procEsc(h.who)}</span><br>${procEsc(h.act)}${h.reason?` — <i>${procEsc(h.reason)}</i>`:''}</div>`).join('');
+  const robotBlock = d.stage==='robot' ? `<div class="modal-field" style="margin-top:14px"><div class="modal-label">Результат проверки робота-комплаенса</div><textarea id="cpRobotRes" rows="5" placeholder="Что найдено: долги по налогам, аресты, суды, сфера деятельности, сайт, Instagram, отзывы, вывод о риске"></textarea><select id="cpRisk" style="margin-top:8px"><option value="low">Риск низкий</option><option value="mid">Риск средний</option><option value="high">Риск высокий</option></select></div>` : '';
+  const doneRobot = d.robotResult ? `<div style="margin-top:14px"><div class="modal-label">Проверка робота-комплаенса · ${({low:'риск низкий',mid:'риск средний',high:'риск высокий'})[d.risk]||''}</div><div style="font-size:13px;white-space:pre-wrap">${procEsc(d.robotResult)}</div></div>` : '';
+  const body = `<div style="margin-bottom:10px"><span class="pill ${st.cls}">${st.label}</span></div>`
+    + `<div style="font-size:16px;font-weight:600;margin-bottom:8px">${procEsc(d.name)}</div>`
+    + row('БИН / ИИН',procEsc(d.bin)) + row('Банк',procEsc(d.bank)) + row('Счёт (IBAN)',procEsc(d.iban)) + row('БИК',procEsc(d.bik)) + row('Адрес',procEsc(d.address))
+    + row('НДС', d.vat==='yes'?'Плательщик НДС':'Не плательщик') + row('Резидентство', d.resident==='nonres'?'Нерезидент':'Резидент РК') + row('Тип', d.kind==='perm'?'Постоянный':'Разовый')
+    + row('Чем занимается',procEsc(d.sphere)) + row('Сайт / Instagram',procEsc(d.site)) + row('Документы',link(d.driveUrl)) + row('Автор',procEsc(d.author))
+    + (d.stage==='returned' ? `<div class="banner" style="margin-top:12px"><b>Возвращено:</b> ${procEsc(d.returnReason||'')}<br><span style="font-size:12px;color:var(--fg-muted)">${procEsc(d.returnedBy||'')}</span></div>` : '')
+    + doneRobot + robotBlock
+    + `<div class="modal-label" style="margin-top:16px">История</div>${hist||'<div class="empty">Пока пусто</div>'}`;
+  let foot = '';
+  if(d.stage==='accounting') foot = `<button class="btn ghost" id="cpBack">Вернуть автору</button><button class="btn" id="cpOk">Данные верны</button>`;
+  else if(d.stage==='robot') foot = `<span></span><button class="btn" id="cpRobotOk">Приложить результат</button>`;
+  else if(d.stage==='finance') foot = `<button class="btn ghost" id="cpBack">Отклонить</button><button class="btn" id="cpOk">Аккредитовать</button>`;
+  else if(d.stage==='returned') foot = `<span></span><button class="btn" id="cpEdit">Исправить и отправить заново</button>`;
+  const m = procModal('Аккредитация контрагента', body, foot);
+  const col = db.collection('counterparties');
+  const step = (patch, act, reason)=>{
+    const hist = (d.history||[]).concat([{ts:Date.now(), who:procWho(), act, ...(reason?{reason}:{})}]);
+    return col.doc(rec.id).update({ ...patch, history:hist, ts:Date.now() });
+  };
+  const q = id=>m.bg.querySelector(id);
+  if(q('#cpOk')) q('#cpOk').onclick = async ()=>{
+    if(d.stage==='accounting') await step({stage:'robot'}, 'Бухгалтерия: данные верны');
+    else await step({stage:'accredited'}, 'Финансовый директор: аккредитован');
+    m.close();
+  };
+  if(q('#cpBack')) q('#cpBack').onclick = ()=>{
+    const by = d.stage==='accounting' ? 'Бухгалтерия' : 'Финансовый директор';
+    procAskReason(d.stage==='accounting'?'Вернуть автору':'Отклонить', d.stage==='accounting'?'Что неверно в данных':'Почему отказ', async reason=>{
+      await step({stage:'returned', returnReason:reason, returnedBy:by+' · '+procWho()}, by+': '+(d.stage==='accounting'?'возвращено автору':'отклонено'), reason);
+      m.close();
+    });
+  };
+  if(q('#cpRobotOk')) q('#cpRobotOk').onclick = async ()=>{
+    const res = q('#cpRobotRes').value.trim();
+    if(!res){ q('#cpRobotRes').style.borderColor='var(--bad)'; return; }
+    await step({stage:'finance', robotResult:res, risk:q('#cpRisk').value}, 'Робот-комплаенс: результат приложен');
+    m.close();
+  };
+  if(q('#cpEdit')) q('#cpEdit').onclick = ()=>{ m.close(); openCounterpartyForm(rec); };
+}
+
+function renderProcesses(panel){
+  const tab = state.tab==='regulations' ? 'regulations' : 'requests';
+  const tabs = [['requests','Заявки'],['regulations','Регламенты']];
+  panel.innerHTML = `<div class="tabs" style="margin-top:0">${tabs.map(([k,l])=>`<button class="tab ${tab===k?'active':''}" data-ptab="${k}">${l}</button>`).join('')}</div><div id="procBody"></div>`;
+  panel.querySelectorAll('[data-ptab]').forEach(b=> b.addEventListener('click', ()=>{ location.hash = '#processes/'+b.dataset.ptab; }));
+  const body = panel.querySelector('#procBody');
+  if(tab==='regulations'){
+    body.innerHTML = `<div class="card"><div style="font-size:13px;color:var(--fg-muted);margin-bottom:12px">Схемы маршрутов. Меняет только администратор: схема меняет и реальный маршрут. Полные схемы с ветками возврата — в <a href="${PROC_DOC_URL}" target="_blank" rel="noopener">документе «Процессы Workspace»</a>. Сами документы (счета, договоры, записки) лежат в Google Диске, в заявках только ссылки.</div>`
+      + PROC_REGULATIONS.map(r=>`<div class="item" style="flex-direction:column;gap:6px;margin-bottom:10px"><div style="font-weight:600">${procEsc(r.title)} ${r.status?`<span class="pill" style="margin-left:6px">${r.status}</span>`:'<span class="pill good" style="margin-left:6px">работает</span>'}</div><ol style="margin:0;padding-left:20px;font-size:13px">${r.route.map(s=>`<li>${procEsc(s)}</li>`).join('')}</ol><div style="font-size:12.5px;color:var(--fg-muted)">${procEsc(r.note)}</div></div>`).join('')
+      + `</div>`;
+    return;
+  }
+  body.innerHTML = `<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px"><div style="font-weight:600">Аккредитация контрагентов</div><button class="btn" id="cpNew">+ Новый контрагент</button></div><div class="modal-btns" id="cpFilters" style="margin-bottom:10px"></div><div class="list" id="cpList"></div></div>`;
+  let filter = 'work', docs = [];
+  const listEl = body.querySelector('#cpList'), fEl = body.querySelector('#cpFilters');
+  const match = d=> filter==='all' ? true : filter==='work' ? ['accounting','robot','finance'].includes(d.data.stage) : d.data.stage===filter;
+  function draw(){
+    const cnt = k=> docs.filter(d=> k==='all'?true:k==='work'?['accounting','robot','finance'].includes(d.data.stage):d.data.stage===k).length;
+    fEl.innerHTML = CP_FILTERS.map(([k,l])=>`<button class="${filter===k?'active':''}" data-f="${k}">${l} · ${cnt(k)}</button>`).join('');
+    fEl.querySelectorAll('button').forEach(b=> b.onclick = ()=>{ filter=b.dataset.f; draw(); });
+    const rows = docs.filter(match);
+    if(!rows.length){ listEl.innerHTML = `<div class="empty">${docs.length?'В этом списке пусто':'Контрагентов пока нет. Нажмите «Новый контрагент».'}</div>`; return; }
+    listEl.innerHTML = rows.map(r=>{ const d=r.data, st=CP_STAGES[d.stage]||{label:d.stage,cls:''}; return `<div class="item" data-id="${r.id}" style="cursor:pointer;align-items:center;gap:10px"><div style="flex:1;min-width:0"><div class="txt" style="font-weight:600">${procEsc(d.name)}</div><div style="font-size:12px;color:var(--fg-muted)">БИН ${procEsc(d.bin)} · ${d.kind==='perm'?'постоянный':'разовый'}${d.sphere?' · '+procEsc(d.sphere):''}</div></div><span class="pill ${st.cls}">${st.label}</span></div>`; }).join('');
+    listEl.querySelectorAll('.item').forEach(el=> el.onclick = ()=>{ const r = docs.find(x=>x.id===el.dataset.id); if(r) openCounterpartyCard(r); });
+  }
+  unsubs['counterparties'] = db.collection('counterparties').orderBy('ts','desc').limit(300).onSnapshot(snap=>{
+    docs = snap.docs.map(d=>({id:d.id, data:d.data()})); draw();
+  });
+  body.querySelector('#cpNew').onclick = ()=> openCounterpartyForm(null);
+}
+
 function render(){
   renderRail();
   renderMobileNav();
@@ -1576,6 +1731,15 @@ function render(){
       <div class="header"><div><div class="eyebrow"><a href="#home" style="color:inherit">главная</a> · все направления</div><h1>Идеи</h1></div></div>
       <div id="panel"></div>`;
     renderIdeas(document.getElementById('panel'));
+    return;
+  }
+  if(state.dir==='processes'){
+    clearUnsubs();
+    const main = document.getElementById('main');
+    main.innerHTML = `
+      <div class="header"><div><div class="eyebrow"><a href="#home" style="color:inherit">главная</a> · общие процессы</div><h1>Процессы</h1></div></div>
+      <div id="panel"></div>`;
+    renderProcesses(document.getElementById('panel'));
     return;
   }
   if(state.dir==='team'){
@@ -3437,9 +3601,10 @@ function renderMobileNav(){
     ${dirsToShow.map(d=>`<div class="sheet-chip ${d.slug===state.dir?'sel':''}" data-dir="${d.slug}">
       <div class="n">${d.n}</div><div class="name">${d.name}</div>
     </div>`).join('')}
+    ${isAdmin() ? `<div class="sheet-chip ${state.dir==='processes'?'sel':''}" data-dir="processes"><div class="n">⇄</div><div class="name">Процессы</div></div>` : ''}
   </div>`;
   dirBody.querySelectorAll('.sheet-chip').forEach(el=>{
-    el.addEventListener('click', ()=>{ closeSheets(); location.hash = '#'+el.dataset.dir+'/tasks'; });
+    el.addEventListener('click', ()=>{ closeSheets(); location.hash = el.dataset.dir==='processes' ? '#processes/requests' : '#'+el.dataset.dir+'/tasks'; });
   });
   refreshUnreadBadges();
 
