@@ -139,6 +139,7 @@ textarea{resize:vertical;min-height:54px}
 .item .del{background:none;border:none;color:var(--fg-muted);font-size:16px;line-height:1;padding:2px 4px}
 .item .del:hover{color:var(--bad)}
 .task-toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+.task-toolbar .yeartabs{margin-bottom:0}
 .task-toolbar select{background:var(--surface-2);border:1px solid var(--border);border-radius:7px;color:var(--fg);padding:7px 10px;font:inherit}
 .task-addrow{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
 .task-addrow input[type=text]{flex:2;min-width:160px}
@@ -195,6 +196,11 @@ textarea{resize:vertical;min-height:54px}
 .pri-btn.medium{color:var(--warn);border-color:var(--warn)}
 .pri-btn.low{color:var(--fg-muted)}
 .task-proj{cursor:pointer}
+.task-meta{display:flex;align-items:center;gap:6px;flex:none}
+.task-meta .task-proj{width:112px;box-sizing:border-box;text-align:center;overflow:hidden;text-overflow:ellipsis}
+.task-meta .task-pp{width:26px;text-align:center}
+.task-meta .task-due{width:98px;box-sizing:border-box;text-align:right}
+.task-meta .task-del{width:24px;text-align:center}
 .task-proj:hover{border-color:var(--accent)}
 .floating-menu{position:fixed;background:var(--surface);border:1px solid var(--border);border-radius:8px;box-shadow:0 10px 26px rgba(0,0,0,.25);z-index:200;min-width:160px;max-width:260px;overflow:hidden}
 .floating-menu button.fm-item{display:block;width:100%;text-align:left;padding:8px 12px;font-size:12.5px;background:none;border:none;color:var(--fg)}
@@ -1620,6 +1626,7 @@ function render(){
 
 // ---------- Tasks (db-backed: filters w/ counts, project & priority buttons,
 // inline due-date edit, checklists, full-form modal on opening a task) ----------
+const FIXED_PROJECTS = { afisha:['Афиша Back','Афиша Front'] }; // направления с жёстким списком проектов
 const TASK_FILTERS = [['active','Активные'],['all','Все'],['overdue','Просроченные'],['postponed','Отложенные']];
 const PRIORITY_LABELS = { high:'Высокий', medium:'Средний', low:'Низкий' };
 // Body-attached floating menu (fixed position, computed from the anchor button) —
@@ -1785,7 +1792,7 @@ function renderTasks(panel, dirSlug){
     <div class="card">
       <div class="task-toolbar">
         <div class="yeartabs" id="taskFilterTabs">${TASK_FILTERS.map(([k,l])=>`<button data-f="${k}" class="${k==='active'?'active':''}">${l} <span class="filter-count" data-c="${k}"></span></button>`).join('')}</div>
-        <select id="projectSelect"><option value="">Все проекты</option></select>
+        <select id="projectSelect"><option value="">Проекты</option></select>
         ${dirSlug==='academy' ? '' : '<button class="btn" id="addTask" style="margin-left:auto">Добавить</button>'}
       </div>
       <div class="list" id="taskList"><div class="empty">Загрузка…</div></div>
@@ -1843,7 +1850,6 @@ function renderTasks(panel, dirSlug){
           <div class="task-title ${v.status==='done'?'done':''}">${(v.text||'').replace(/</g,'&lt;')}</div>
           <div class="task-meta">
             <button class="task-proj">${v.project ? v.project.replace(/</g,'&lt;') : 'Без проекта'}</button>
-            <button class="pri-btn ${pri}" data-pri="${pri}">${PRIORITY_LABELS[pri]}</button>
             <button class="task-pp" title="${v.status==='postponed'?'Вернуть в активные':'Отложить'}">${v.status==='postponed'?'▶':'⏸'}</button>
             <button class="task-due" data-due="${v.due||''}">${v.due?(v.hasDueTime?fmtDueTime(v.due):fmtDue(v.due)):'+ срок'}</button>
             <button class="task-del" title="Удалить">×</button>
@@ -1909,18 +1915,19 @@ function renderTasks(panel, dirSlug){
         const id = btn.closest('.task').dataset.id;
         const cur = allDocs.find(d=>d.id===id);
         const curProj = (cur && cur.data.project) || '';
-        const known = [...new Set([...dirProjectNames, ...allDocs.map(d=>d.data.project).filter(Boolean)])].sort();
+        const fixedP = FIXED_PROJECTS[dirSlug];
+        const known = fixedP ? fixedP.slice() : [...new Set([...dirProjectNames, ...allDocs.map(d=>d.data.project).filter(Boolean)])].sort();
         const { menu, close } = openFloatingMenu(btn, m=>{
           m.innerHTML = `
             <button class="fm-item ${!curProj?'sel':''}" data-v="">Без проекта</button>
             ${known.map(p=>`<button class="fm-item ${p===curProj?'sel':''}" data-v="${p.replace(/"/g,'&quot;')}">${p.replace(/</g,'&lt;')}</button>`).join('')}
-            <div class="fm-sep"></div>
-            <div class="fm-addrow"><input type="text" placeholder="Новый проект…" class="fmNewProj"/><button class="btn" style="padding:5px 9px">+</button></div>`;
+            ${fixedP ? '' : '<div class="fm-sep"></div><div class="fm-addrow"><input type="text" placeholder="Новый проект…" class="fmNewProj"/><button class="btn" style="padding:5px 9px">+</button></div>'}`;
           m.querySelectorAll('.fm-item').forEach(opt=>{
             opt.addEventListener('click', ()=>{ col.doc(id).update({ project: opt.dataset.v||null }).catch(()=>{}); close(); });
           });
           const npInput = m.querySelector('.fmNewProj');
           const npBtn = m.querySelector('.fm-addrow .btn');
+          if(!npInput) return;
           function addNew(){ const v = npInput.value.trim(); if(!v) return; col.doc(id).update({ project: v }).catch(()=>{}); db.collection('projects').add({ name:v, direction:dirSlug, ts: Date.now() }).catch(()=>{}); close(); }
           npBtn.addEventListener('click', addNew);
           npInput.addEventListener('keydown', ev=>{ if(ev.key==='Enter') addNew(); });
@@ -2012,9 +2019,9 @@ function renderTasks(panel, dirSlug){
 
   const unsub = q.onSnapshot(snap=>{
     allDocs = snap.docs.map(d=>({ id:d.id, data:d.data() }));
-    const projects = [...new Set(allDocs.map(d=>d.data.project).filter(Boolean))].sort();
+    const projects = FIXED_PROJECTS[dirSlug] ? FIXED_PROJECTS[dirSlug].slice() : [...new Set(allDocs.map(d=>d.data.project).filter(Boolean))].sort();
     const curVal = projectSelect.value;
-    projectSelect.innerHTML = '<option value="">Все проекты</option>' + projects.map(p=>`<option value="${p.replace(/"/g,'&quot;')}">${p}</option>`).join('');
+    projectSelect.innerHTML = '<option value="">Проекты</option>' + projects.map(p=>`<option value="${p.replace(/"/g,'&quot;')}">${p}</option>`).join('');
     projectSelect.value = projects.includes(curVal) ? curVal : '';
     applyFilterAndRender();
     refreshOpenModal();
