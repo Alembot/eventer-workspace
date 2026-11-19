@@ -448,6 +448,7 @@ body.modal-open{position:fixed;left:0;right:0;overflow:hidden}
     <input id="authEmail" type="email" placeholder="Почта" autocomplete="username" style="width:100%;padding:10px 12px;margin-bottom:8px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:var(--bg);color:var(--fg)"/>
     <input id="authPass" type="password" placeholder="Пароль" autocomplete="current-password" style="width:100%;padding:10px 12px;margin-bottom:14px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:var(--bg);color:var(--fg)"/>
     <button id="authSignIn" class="btn" style="width:100%;margin-bottom:8px;padding:10px;border-radius:8px;border:none;background:var(--accent);color:var(--accent-fg);font-size:14px;cursor:pointer">Войти</button>
+    <button id="authMagic" style="width:100%;margin-bottom:8px;padding:10px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--fg);font-size:13px;cursor:pointer">Войти по ссылке на почту (без пароля)</button>
     <button id="authSignUp" style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--fg);font-size:13px;cursor:pointer">Первый вход — создать пароль</button>
   </div>
 </div>
@@ -3628,6 +3629,15 @@ function wireAuthScreen(){
     if(error) return showAuth(error.message==='Invalid login credentials' ? 'Неверная почта или пароль.' : error.message, 'error');
     await startAppWithCloud();
   });
+  document.getElementById('authMagic').addEventListener('click', async ()=>{
+    if(!sb) return showAuth('Supabase недоступен в этом окне.', 'error');
+    const email = emailI.value.trim();
+    if(!email) return showAuth('Введи почту и нажми снова.', 'error');
+    showAuth('Отправляем ссылку…');
+    const { error } = await sb.auth.signInWithOtp({ email, options:{ shouldCreateUser:false, emailRedirectTo: location.origin + location.pathname } });
+    if(error) return showAuth('Не удалось отправить: ' + error.message, 'error');
+    showAuth('Письмо отправлено на ' + email + '. Открой его (проверь и «Спам») и нажми ссылку: вход произойдёт сам.');
+  });
   document.getElementById('authSignUp').addEventListener('click', async ()=>{
     if(!sb) return showAuth('Supabase недоступен в этом окне.', 'error');
     const email = emailI.value.trim(), password = passI.value;
@@ -3637,7 +3647,7 @@ function wireAuthScreen(){
     const { data, error } = await sb.auth.signUp({ email, password });
     if(error) return showAuth(error.message, 'error');
     if(data.session){ await startAppWithCloud(); return; }
-    showAuth('Письмо отправлено на ' + email + ' — открой его и перейди по ссылке, затем вернись сюда и нажми «Войти».');
+    showAuth('Если почта новая, письмо придёт на ' + email + '. Если ты уже зарегистрирован, письмо не приходит: нажми «Войти по ссылке на почту».');
   });
 }
 
