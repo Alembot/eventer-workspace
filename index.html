@@ -1829,6 +1829,8 @@ function renderTasks(panel, dirSlug){
     else if(filter==='overdue') docs = docs.filter(d=> isOverdue(d.data));
     else if(filter==='postponed') docs = docs.filter(d=> d.data.status==='postponed');
     // 'all' = no extra filtering
+    // Всегда по сроку: от самых ранних к самым поздним; без срока — внизу (по номеру).
+    docs = docs.slice().sort((x,y)=>{ const dx=x.data.due||Infinity, dy=y.data.due||Infinity; if(dx!==dy) return dx<dy?-1:1; return (x.data.no||0)-(y.data.no||0); });
     if(!docs.length){ listEl.innerHTML = '<div class="empty">Нет задач по этому фильтру.</div>'; return; }
     listEl.innerHTML = docs.map(({id,data:v})=>{
       const checklist = Array.isArray(v.checklist) ? v.checklist : [];
