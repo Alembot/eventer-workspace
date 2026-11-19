@@ -1034,6 +1034,7 @@ function tabsForDir(slug){
   const tabs = base.slice(0,1);
   if(DIRS_WITH_FINANCE_AND_MESSAGES.includes(slug)) tabs.push(['finance','Финансы']);
   if(DIRS_WITH_MARKETING.includes(slug)) tabs.push(['marketing','Маркетинг и продажи']);
+  if(slug==='finance') tabs.push(['budgets','Бюджеты']);
   tabs.push(base[1], base[2], base[3]);
   // Вкладка «Сообщения» убрана 13.11.2026: Кайрату — только лента «Мне» на главной.
   return tabs;
@@ -1689,7 +1690,7 @@ function openCounterpartyCard(rec){
 const REQ_ROLES = { head:'Руководитель направления', fd:'Финансовый директор', acc:'Бухгалтерия', gd:'Генеральный директор' };
 const REQ_TYPES = {
   payment:{ title:'Заявка на оплату', menuSub:'Платёж контрагенту по счёту', route:[['head','Согласовать'],['fd','Согласовать'],['acc','Поручение сформировано, закрывающие проверены'],['gd','Согласовать'],['acc','Платёж проведён']],
-    fields:[['dir','select','Подразделение'],['title','text','Наименование платежа'],['cp','cp','Контрагент (только аккредитованные)'],['amount','text','Сумма, ₸'],['budget','text','Статья бюджета (или «вне бюджета»)'],['invoice','url','Счёт: ссылка на файл в Google Диске'],['contract','url','Договор: ссылка (если нужен)'],['memo','url','Служебная записка: ссылка (если вне бюджета)']] },
+    fields:[['dir','select','Подразделение'],['title','text','Наименование платежа'],['cp','cp','Контрагент (только аккредитованные)'],['amount','text','Сумма, ₸'],['budgetId','budget','Статья бюджета'],['invoice','url','Счёт: ссылка на файл в Google Диске'],['contract','url','Договор: ссылка (если нужен)'],['memo','url','Служебная записка: ссылка (если вне бюджета)']] },
   memo:{ title:'Служебная записка вне бюджета', menuSub:'Платёж, которого нет в бюджете', route:[['fd','Согласовать'],['gd','Согласовать']],
     fields:[['dir','select','Подразделение'],['title','text','Тема'],['amount','text','Сумма, ₸'],['budget','text','Статья'],['reason','area','Обоснование'],['doc','url','Документ: ссылка в Google Диске']] },
   contract:{ title:'Согласование договора', menuSub:'Договор на подпись', provisional:true, route:[['head','Согласовать'],['fd','Согласовать'],['gd','Согласовать']],
@@ -1703,6 +1704,69 @@ function reqStatus(d){
   if(d.step>=t.route.length) return {label:'Завершена', cls:'good'};
   return {label:'Ждёт: '+REQ_ROLES[t.route[d.step][0]], cls:'warn'};
 }
+
+// ---- Бюджеты (Финансовый отдел → вкладка «Бюджеты»): статья = направление + период + лимит.
+// Потрачено = проведённые заявки на оплату по статье, в работе = ждут согласования (резерв), остаток = лимит − потрачено − в работе.
+function moneyNum(v){ return parseFloat(String(v||'').replace(/[^\d.,]/g,'').replace(',','.'))||0; }
+function moneyFmt(n){ return Math.round(n).toLocaleString('ru-RU'); }
+function budgetUsage(b, excludeReqId){
+  let spent=0, reserved=0;
+  lsRead('proc_requests').forEach(r=>{
+    if(r.type!=='payment' || r.budgetId!==b.id || r.id===excludeReqId || r.status==='returned') return;
+    const done = r.step >= REQ_TYPES.payment.route.length;
+    if(done) spent += moneyNum(r.amount); else reserved += moneyNum(r.amount);
+  });
+  return { spent, reserved, left: moneyNum(b.limit) - spent - reserved };
+}
+function budgetOptionsHtml(dirSlug, selected, excludeReqId){
+  const list = lsRead('budgets').filter(b=>b.dirSlug===dirSlug).sort((a,b)=>String(a.period).localeCompare(b.period));
+  return `<option value="">— выберите —</option><option value="out" ${selected==='out'?'selected':''}>Вне бюджета (нужна служебная записка)</option>`
+    + list.map(b=>`<option value="${b.id}" ${selected===b.id?'selected':''}>${procEsc(b.article)} · ${procEsc(b.period)} · остаток ${moneyFmt(budgetUsage(b, excludeReqId).left)} ₸</option>`).join('');
+}
+function openBudgetForm(rec){
+  const d = rec ? rec.data : {};
+  const inp = 'width:100%;background:var(--surface-2);border:1px solid var(--border);border-radius:7px;color:var(--fg);padding:8px 10px;font:inherit';
+  const body = `<div class="modal-field"><div class="modal-label">Направление</div><select id="bdDir">${ACTIVE_DIRECTIONS.map(x=>`<option value="${x.slug}" ${d.dirSlug===x.slug?'selected':''}>${x.name}</option>`).join('')}</select></div>
+    <div class="modal-field"><div class="modal-label">Период (месяц)</div><input id="bdPeriod" type="month" value="${procEsc(d.period||new Date().toISOString().slice(0,7))}" style="${inp}"></div>
+    <div class="modal-field"><div class="modal-label">Статья</div><input id="bdArticle" value="${procEsc(d.article||'')}" placeholder="например, маркетинг, аренда, зарплата" style="${inp}"></div>
+    <div class="modal-field"><div class="modal-label">Лимит, ₸</div><input id="bdLimit" value="${procEsc(d.limit||'')}" inputmode="numeric" style="${inp}"></div>
+    <div id="bdErr" style="color:var(--bad);font-size:12.5px;display:none"></div>`;
+  const m = procModal(rec?'Статья бюджета':'Новая статья бюджета', body, `${rec?'<button class="modal-delete" id="bdDel">Удалить</button>':'<span></span>'}<span style="display:flex;gap:8px"><button class="btn ghost" id="bdCancel">Отмена</button><button class="btn" id="bdSave">Сохранить</button></span>`);
+  m.bg.querySelector('#bdCancel').onclick = m.close;
+  if(rec) m.bg.querySelector('#bdDel').onclick = async ()=>{
+    const used = budgetUsage(rec.data);
+    if(used.spent+used.reserved>0){ const e=m.bg.querySelector('#bdErr'); e.textContent='По статье уже есть заявки, удалить нельзя. Можно уменьшить лимит.'; e.style.display='block'; return; }
+    await db.collection('budgets').doc(rec.id).delete(); m.close();
+  };
+  m.bg.querySelector('#bdSave').onclick = async ()=>{
+    const g = id=>m.bg.querySelector('#'+id).value.trim();
+    const e = m.bg.querySelector('#bdErr');
+    const article=g('bdArticle'), limit=moneyNum(g('bdLimit'));
+    if(!article || !limit){ e.textContent='Заполните статью и лимит'; e.style.display='block'; return; }
+    const data = { dirSlug:g('bdDir'), period:g('bdPeriod'), article, limit, status:'approved', direction:'finance', ts:Date.now() };
+    if(rec) await db.collection('budgets').doc(rec.id).update(data); else await db.collection('budgets').add(data);
+    m.close();
+  };
+}
+function renderBudgets(panel){
+  panel.innerHTML = `<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px"><div style="font-weight:600">Бюджеты направлений</div><button class="btn" id="bdNew">+ Добавить статью</button></div><div style="font-size:12.5px;color:var(--fg-muted);margin-bottom:12px">Заявка на оплату выбирает статью отсюда. Остаток = лимит − проведено − в работе. Не хватает остатка: заявка не уходит, нужна служебная записка.</div><div id="bdList"></div></div>`;
+  panel.querySelector('#bdNew').onclick = ()=> openBudgetForm(null);
+  const listEl = panel.querySelector('#bdList');
+  let budgets = [];
+  function draw(){
+    if(!budgets.length){ listEl.innerHTML = '<div class="empty">Статей пока нет. Нажмите «Добавить статью».</div>'; return; }
+    const byDir = {};
+    budgets.forEach(b=>{ (byDir[b.data.dirSlug] = byDir[b.data.dirSlug]||[]).push(b); });
+    listEl.innerHTML = Object.keys(byDir).map(slug=>{
+      const dn = (DIRECTIONS.find(x=>x.slug===slug)||{}).name||slug;
+      const rows = byDir[slug].sort((a,b)=>String(a.data.period).localeCompare(b.data.period)).map(b=>{ const u=budgetUsage(b.data); return `<tr data-id="${b.id}" style="cursor:pointer"><td>${procEsc(b.data.article)}</td><td>${procEsc(b.data.period)}</td><td style="text-align:right">${moneyFmt(b.data.limit)}</td><td style="text-align:right">${moneyFmt(u.reserved)}</td><td style="text-align:right">${moneyFmt(u.spent)}</td><td style="text-align:right;font-weight:600;${u.left<0?'color:var(--bad)':''}">${moneyFmt(u.left)}</td></tr>`; }).join('');
+      return `<div style="font-weight:600;margin:12px 0 6px">${procEsc(dn)}</div><div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="color:var(--fg-muted);font-size:11.5px;text-align:left"><th>Статья</th><th>Период</th><th style="text-align:right">Лимит, ₸</th><th style="text-align:right">В работе</th><th style="text-align:right">Проведено</th><th style="text-align:right">Остаток</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    }).join('');
+    listEl.querySelectorAll('tbody tr').forEach(tr=>{ tr.style.borderTop='1px solid var(--border)'; tr.querySelectorAll('td').forEach(td=>td.style.padding='7px 6px'); tr.onclick = ()=>{ const b = budgets.find(x=>x.id===tr.dataset.id); if(b) openBudgetForm(b); }; });
+  }
+  unsubs['budgets'] = db.collection('budgets').onSnapshot(snap=>{ budgets = snap.docs.map(d=>({id:d.id, data:{ ...d.data(), id:d.id }})); draw(); });
+  unsubs['budgets-req'] = db.collection('proc_requests').onSnapshot(()=>draw());
+}
 function openRequestForm(type, rec){
   const t = REQ_TYPES[type], d = rec ? rec.data : {};
   const accr = lsRead('counterparties').filter(c=>c.stage==='accredited');
@@ -1711,6 +1775,7 @@ function openRequestForm(type, rec){
     let ctl;
     if(kind==='select') ctl = `<select id="rf_${k}">${ACTIVE_DIRECTIONS.map(x=>`<option value="${x.slug}" ${d[k]===x.slug?'selected':''}>${x.name}</option>`).join('')}</select>`;
     else if(kind==='cp') ctl = accr.length ? `<select id="rf_${k}"><option value="">— выберите —</option>${accr.map(c=>`<option value="${c.id}" ${d[k]===c.id?'selected':''}>${procEsc(c.name)} · ${procEsc(c.bin)}</option>`).join('')}</select>` : `<div style="font-size:12.5px;color:var(--bad)">Аккредитованных контрагентов пока нет. Сначала создайте и проведите контрагента.</div>`;
+    else if(kind==='budget') ctl = `<select id="rf_${k}">${budgetOptionsHtml(d.dir||(ACTIVE_DIRECTIONS[0]||{}).slug, d.budgetId, rec&&rec.id)}</select>`;
     else if(kind==='area') ctl = `<textarea id="rf_${k}" rows="4">${procEsc(d[k]||'')}</textarea>`;
     else ctl = `<input id="rf_${k}" value="${procEsc(d[k]||'')}" style="${inp}">`;
     return `<div class="modal-field"><div class="modal-label">${label}</div>${ctl}</div>`;
@@ -1718,6 +1783,8 @@ function openRequestForm(type, rec){
   const body = (rec&&d.status==='returned' ? `<div class="banner" style="margin-bottom:12px"><b>Возвращено:</b> ${procEsc(d.returnReason||'')}<br><span style="font-size:12px;color:var(--fg-muted)">${procEsc(d.returnedBy||'')}</span></div>` : '') + t.fields.map(fld).join('') + `<div id="rfErr" style="color:var(--bad);font-size:12.5px;margin-bottom:10px;display:none"></div>`;
   const m = procModal(t.title, body, `<button class="btn ghost" id="rfCancel">Отмена</button><button class="btn" id="rfSave">${rec&&d.status==='returned'?'Исправил, отправить заново':'Отправить'}</button>`);
   m.bg.querySelector('#rfCancel').onclick = m.close;
+  const dirSel = m.bg.querySelector('#rf_dir'), budSel = m.bg.querySelector('#rf_budgetId');
+  if(dirSel && budSel) dirSel.onchange = ()=>{ budSel.innerHTML = budgetOptionsHtml(dirSel.value, '', rec&&rec.id); };
   m.bg.querySelector('#rfSave').onclick = async ()=>{
     const v = {}; t.fields.forEach(([k,kind])=>{ const el=m.bg.querySelector('#rf_'+k); v[k]= el ? el.value.trim() : ''; });
     const err = m.bg.querySelector('#rfErr'); const bad = msg=>{ err.textContent=msg; err.style.display='block'; };
@@ -1727,8 +1794,15 @@ function openRequestForm(type, rec){
       if(!v.cp) return bad('Проверка: выберите аккредитованного контрагента');
       if(!v.amount) return bad('Проверка: укажите сумму');
       if(!v.invoice) return bad('Проверка: приложите счёт (ссылка на файл)');
-      if(!v.budget) return bad('Проверка: укажите статью бюджета или «вне бюджета»');
-      if(/вне\s*бюджет/i.test(v.budget) && !v.memo) return bad('Проверка: платёж вне бюджета идёт только со служебной запиской. Сначала создайте записку и приложите ссылку');
+      if(!v.budgetId) return bad('Проверка: выберите статью бюджета или «вне бюджета»');
+      if(v.budgetId==='out'){ v.budget='вне бюджета'; if(!v.memo) return bad('Проверка: платёж вне бюджета идёт только со служебной запиской. Сначала создайте записку и приложите ссылку'); }
+      else {
+        const bd = lsRead('budgets').find(x=>x.id===v.budgetId);
+        if(!bd) return bad('Проверка: статья бюджета не найдена');
+        const u = budgetUsage(bd, rec&&rec.id), need = moneyNum(v.amount);
+        if(need > u.left) return bad('Проверка: не хватает остатка по статье. Остаток '+moneyFmt(u.left)+' ₸, в заявке '+moneyFmt(need)+' ₸. Нужна служебная записка вне бюджета');
+        v.budget = bd.article+' · '+bd.period;
+      }
     }
     if(type==='memo' && (!v.amount || !v.reason)) return bad('Укажите сумму и обоснование');
     if(type==='contract' && !v.doc) return bad('Приложите проект договора (ссылка)');
@@ -1897,6 +1971,7 @@ function render(){
   const panel = document.getElementById('panel');
   if(state.tab==='finance' && DIRS_WITH_FINANCE_AND_MESSAGES.includes(dir.slug)) renderFinance(panel, dir.slug);
   else if(state.tab==='marketing' && DIRS_WITH_MARKETING.includes(dir.slug)) renderMarketing(panel, dir.slug);
+  else if(state.tab==='budgets' && dir.slug==='finance') renderBudgets(panel);
   else if(state.tab==='messages' && dir.slug==='academy') renderAcademyMessageArchive(panel);
   else if(state.tab==='messages') renderMessages(panel, dir.slug);
   else if(state.tab==='apps') renderApps(panel, dir.slug);
