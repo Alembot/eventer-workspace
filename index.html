@@ -1571,11 +1571,12 @@ const CP_STAGES = {
   accredited:{label:'Аккредитован', cls:'good'},
   returned:{label:'Возвращён автору', cls:'bad'}
 };
+const CP_SPHERES = {services:'Услуги', goods:'Товары', other:'Другое'};
 const CP_FILTERS = [['work','В работе'],['accredited','Аккредитованы'],['returned','Возвращены'],['all','Все']];
 const PROC_REGULATIONS = [
   {title:'Аккредитация контрагента', route:['Менеджер вносит данные','Бухгалтерия: реквизиты, адреса, налоги, НДС','Робот-комплаенс: риски, долги, сфера, сайт, отзывы','Финансовый директор: согласовать или отклонить','Контрагент аккредитован'], note:'Ошибка в данных или отказ возвращает карточку менеджеру, причина обязательна.'},
-  {title:'Заявка на оплату', route:['Менеджер отправляет заявку','Автоматическая проверка: контрагент, счёт, договор, бюджет','Руководитель направления','Финансовый директор','Бухгалтерия: поручение и закрывающие документы','Генеральный директор','Бухгалтерия проводит платёж'], note:'Любой отказ возвращает заявку автору, причина обязательна. Нет закрывающих документов (после предоплаты) — новые платежи контрагенту блокируются.', status:'скоро'},
-  {title:'Служебная записка вне бюджета', route:['Менеджер пишет записку: обоснование, сумма, статья','Финансовый директор','Генеральный директор','Решение по бюджету: изменить бюджет или в рамках лимита','Обычная заявка на оплату со ссылкой на записку'], note:'Отказ любого согласующего возвращает записку автору, причина обязательна.', status:'скоро'}
+  {title:'Заявка на оплату', route:['Менеджер отправляет заявку','Автоматическая проверка: контрагент, счёт, договор, бюджет','Руководитель направления','Финансовый директор','Бухгалтерия: поручение и закрывающие документы','Генеральный директор','Бухгалтерия проводит платёж'], note:'Любой отказ возвращает заявку автору, причина обязательна. Автопроверка пока проверяет контрагента, счёт и статью; остаток бюджета проверим, когда заведём бюджеты.', status:'работает, бюджеты позже'},
+  {title:'Служебная записка вне бюджета', route:['Менеджер пишет записку: обоснование, сумма, статья','Финансовый директор','Генеральный директор','Решение по бюджету: изменить бюджет или в рамках лимита','Обычная заявка на оплату со ссылкой на записку'], note:'Отказ любого согласующего возвращает записку автору, причина обязательна.', status:'работает'}
 ];
 function procEsc(v){ return String(v??'').replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 function procWho(){ return (currentProfile && currentProfile.email) || 'Администратор'; }
@@ -1609,9 +1610,10 @@ function openCounterpartyForm(rec){
     + f('cpName','Наименование',d.name,'ТОО «…»')
     + `<div class="modal-row"><div style="flex:1;min-width:180px">${f('cpBin','БИН / ИИН',d.bin)}</div><div style="flex:1;min-width:180px">${f('cpBik','БИК',d.bik)}</div></div>`
     + f('cpBank','Банк',d.bank) + f('cpIban','Расчётный счёт (IBAN)',d.iban) + f('cpAddr','Юридический адрес',d.address)
-    + `<div class="modal-row"><div style="flex:1;min-width:180px">${sel('cpVat','НДС',[['yes','Плательщик НДС'],['no','Не плательщик']],d.vat||'yes')}</div><div style="flex:1;min-width:180px">${sel('cpRes','Резидентство',[['res','Резидент РК'],['nonres','Нерезидент']],d.resident||'res')}</div><div style="flex:1;min-width:180px">${sel('cpKind','Тип',[['one','Разовый'],['perm','Постоянный']],d.kind||'one')}</div></div>`
-    + f('cpSphere','Чем занимается (что поставляет)',d.sphere,'например, компьютерная техника')
-    + f('cpSite','Сайт / Instagram',d.site) + f('cpDrive','Ссылка на документы в Google Диске',d.driveUrl,'https://drive.google.com/…')
+    + `<div class="modal-row"><div style="flex:1;min-width:180px">${sel('cpVat','НДС',[['yes','Плательщик НДС'],['no','Не плательщик']],d.vat||'yes')}</div><div style="flex:1;min-width:180px">${sel('cpRes','Резидентство',[['res','Резидент РК'],['nonres','Нерезидент']],d.resident||'res')}</div></div>`
+    + sel('cpSphereType','Чем занимается',[['services','Услуги'],['goods','Товары'],['other','Другое']],d.sphereType||'services')
+    + f('cpSphere','Уточнение: что именно',d.sphere,'например, компьютерная техника')
+    + f('cpSite','Сайт',d.site,'https://…') + f('cpInsta','Instagram',d.instagram,'@аккаунт') + f('cpDrive','Ссылка на документы в Google Диске',d.driveUrl,'https://drive.google.com/…')
     + `<div id="cpErr" style="color:var(--bad);font-size:12px;margin-bottom:10px;display:none"></div>`;
   const m = procModal(rec?'Контрагент':'Новый контрагент', body, `<button class="btn ghost" id="cpCancel">Отмена</button><button class="btn" id="cpSave">${rec&&d.stage==='returned'?'Исправил, отправить заново':'Отправить на аккредитацию'}</button>`);
   m.bg.querySelector('#cpCancel').onclick = m.close;
@@ -1621,7 +1623,7 @@ function openCounterpartyForm(rec){
     const err = m.bg.querySelector('#cpErr');
     if(!name || !bin || !iban){ err.textContent='Заполните наименование, БИН и расчётный счёт'; err.style.display='block'; return; }
     const now = Date.now();
-    const base = { name, bin, bik:g('cpBik'), bank:g('cpBank'), iban, address:g('cpAddr'), vat:g('cpVat'), resident:g('cpRes'), kind:g('cpKind'), sphere:g('cpSphere'), site:g('cpSite'), driveUrl:g('cpDrive'), direction:'finance' };
+    const base = { name, bin, bik:g('cpBik'), bank:g('cpBank'), iban, address:g('cpAddr'), vat:g('cpVat'), resident:g('cpRes'), sphereType:g('cpSphereType'), sphere:g('cpSphere'), site:g('cpSite'), instagram:g('cpInsta'), driveUrl:g('cpDrive'), direction:'finance' };
     const col = db.collection('counterparties');
     if(rec){
       const hist = (d.history||[]).concat([{ts:now, who:procWho(), act:'Исправлено и отправлено заново'}]);
@@ -1643,8 +1645,8 @@ function openCounterpartyCard(rec){
   const body = `<div style="margin-bottom:10px"><span class="pill ${st.cls}">${st.label}</span></div>`
     + `<div style="font-size:16px;font-weight:600;margin-bottom:8px">${procEsc(d.name)}</div>`
     + row('БИН / ИИН',procEsc(d.bin)) + row('Банк',procEsc(d.bank)) + row('Счёт (IBAN)',procEsc(d.iban)) + row('БИК',procEsc(d.bik)) + row('Адрес',procEsc(d.address))
-    + row('НДС', d.vat==='yes'?'Плательщик НДС':'Не плательщик') + row('Резидентство', d.resident==='nonres'?'Нерезидент':'Резидент РК') + row('Тип', d.kind==='perm'?'Постоянный':'Разовый')
-    + row('Чем занимается',procEsc(d.sphere)) + row('Сайт / Instagram',procEsc(d.site)) + row('Документы',link(d.driveUrl)) + row('Автор',procEsc(d.author))
+    + row('НДС', d.vat==='yes'?'Плательщик НДС':'Не плательщик') + row('Резидентство', d.resident==='nonres'?'Нерезидент':'Резидент РК') 
+    + row('Чем занимается', procEsc(CP_SPHERES[d.sphereType]||'')) + row('Уточнение',procEsc(d.sphere)) + row('Сайт',link(d.site)) + row('Instagram',procEsc(d.instagram)) + row('Документы',link(d.driveUrl)) + row('Автор',procEsc(d.author))
     + (d.stage==='returned' ? `<div class="banner" style="margin-top:12px"><b>Возвращено:</b> ${procEsc(d.returnReason||'')}<br><span style="font-size:12px;color:var(--fg-muted)">${procEsc(d.returnedBy||'')}</span></div>` : '')
     + doneRobot + robotBlock
     + `<div class="modal-label" style="margin-top:16px">История</div>${hist||'<div class="empty">Пока пусто</div>'}`;
@@ -1681,16 +1683,108 @@ function openCounterpartyCard(rec){
   if(q('#cpEdit')) q('#cpEdit').onclick = ()=>{ m.close(); openCounterpartyForm(rec); };
 }
 
+
+// ---- Заявки и согласования (оплата, записка вне бюджета, договор, кадровые): общий движок маршрута.
+// Каждый шаг: «Согласовать» или «Отклонить» (причина обязательна) → заявка возвращается автору, он правит и запускает заново.
+const REQ_ROLES = { head:'Руководитель направления', fd:'Финансовый директор', acc:'Бухгалтерия', gd:'Генеральный директор' };
+const REQ_TYPES = {
+  payment:{ title:'Заявка на оплату', menuSub:'Платёж контрагенту по счёту', route:[['head','Согласовать'],['fd','Согласовать'],['acc','Поручение сформировано, закрывающие проверены'],['gd','Согласовать'],['acc','Платёж проведён']],
+    fields:[['dir','select','Подразделение'],['title','text','Наименование платежа'],['cp','cp','Контрагент (только аккредитованные)'],['amount','text','Сумма, ₸'],['budget','text','Статья бюджета (или «вне бюджета»)'],['invoice','url','Счёт: ссылка на файл в Google Диске'],['contract','url','Договор: ссылка (если нужен)'],['memo','url','Служебная записка: ссылка (если вне бюджета)']] },
+  memo:{ title:'Служебная записка вне бюджета', menuSub:'Платёж, которого нет в бюджете', route:[['fd','Согласовать'],['gd','Согласовать']],
+    fields:[['dir','select','Подразделение'],['title','text','Тема'],['amount','text','Сумма, ₸'],['budget','text','Статья'],['reason','area','Обоснование'],['doc','url','Документ: ссылка в Google Диске']] },
+  contract:{ title:'Согласование договора', menuSub:'Договор на подпись', provisional:true, route:[['head','Согласовать'],['fd','Согласовать'],['gd','Согласовать']],
+    fields:[['dir','select','Подразделение'],['title','text','Название договора'],['cp','cp','Контрагент (только аккредитованные)'],['amount','text','Сумма, ₸'],['reason','area','Предмет и условия'],['doc','url','Проект договора: ссылка в Google Диске']] },
+  hr:{ title:'Приём на работу, приказы', menuSub:'Кадровые документы', provisional:true, route:[['head','Согласовать'],['gd','Согласовать']],
+    fields:[['dir','select','Подразделение'],['title','text','Что оформляем (приём, перевод, увольнение, приказ)'],['reason','area','Детали'],['doc','url','Документ: ссылка в Google Диске']] }
+};
+function reqStatus(d){
+  if(d.status==='returned') return {label:'Возвращена автору', cls:'bad'};
+  const t = REQ_TYPES[d.type]; if(!t) return {label:'', cls:''};
+  if(d.step>=t.route.length) return {label:'Завершена', cls:'good'};
+  return {label:'Ждёт: '+REQ_ROLES[t.route[d.step][0]], cls:'warn'};
+}
+function openRequestForm(type, rec){
+  const t = REQ_TYPES[type], d = rec ? rec.data : {};
+  const accr = lsRead('counterparties').filter(c=>c.stage==='accredited');
+  const inp = 'width:100%;background:var(--surface-2);border:1px solid var(--border);border-radius:7px;color:var(--fg);padding:8px 10px;font:inherit';
+  const fld = ([k,kind,label])=>{
+    let ctl;
+    if(kind==='select') ctl = `<select id="rf_${k}">${ACTIVE_DIRECTIONS.map(x=>`<option value="${x.slug}" ${d[k]===x.slug?'selected':''}>${x.name}</option>`).join('')}</select>`;
+    else if(kind==='cp') ctl = accr.length ? `<select id="rf_${k}"><option value="">— выберите —</option>${accr.map(c=>`<option value="${c.id}" ${d[k]===c.id?'selected':''}>${procEsc(c.name)} · ${procEsc(c.bin)}</option>`).join('')}</select>` : `<div style="font-size:12.5px;color:var(--bad)">Аккредитованных контрагентов пока нет. Сначала создайте и проведите контрагента.</div>`;
+    else if(kind==='area') ctl = `<textarea id="rf_${k}" rows="4">${procEsc(d[k]||'')}</textarea>`;
+    else ctl = `<input id="rf_${k}" value="${procEsc(d[k]||'')}" style="${inp}">`;
+    return `<div class="modal-field"><div class="modal-label">${label}</div>${ctl}</div>`;
+  };
+  const body = (rec&&d.status==='returned' ? `<div class="banner" style="margin-bottom:12px"><b>Возвращено:</b> ${procEsc(d.returnReason||'')}<br><span style="font-size:12px;color:var(--fg-muted)">${procEsc(d.returnedBy||'')}</span></div>` : '') + t.fields.map(fld).join('') + `<div id="rfErr" style="color:var(--bad);font-size:12.5px;margin-bottom:10px;display:none"></div>`;
+  const m = procModal(t.title, body, `<button class="btn ghost" id="rfCancel">Отмена</button><button class="btn" id="rfSave">${rec&&d.status==='returned'?'Исправил, отправить заново':'Отправить'}</button>`);
+  m.bg.querySelector('#rfCancel').onclick = m.close;
+  m.bg.querySelector('#rfSave').onclick = async ()=>{
+    const v = {}; t.fields.forEach(([k,kind])=>{ const el=m.bg.querySelector('#rf_'+k); v[k]= el ? el.value.trim() : ''; });
+    const err = m.bg.querySelector('#rfErr'); const bad = msg=>{ err.textContent=msg; err.style.display='block'; };
+    if(!v.title) return bad('Заполните название');
+    if(type==='payment'){
+      // автоматическая проверка системы: людей не отвлекаем, при ошибке заявка не уходит дальше
+      if(!v.cp) return bad('Проверка: выберите аккредитованного контрагента');
+      if(!v.amount) return bad('Проверка: укажите сумму');
+      if(!v.invoice) return bad('Проверка: приложите счёт (ссылка на файл)');
+      if(!v.budget) return bad('Проверка: укажите статью бюджета или «вне бюджета»');
+      if(/вне\s*бюджет/i.test(v.budget) && !v.memo) return bad('Проверка: платёж вне бюджета идёт только со служебной запиской. Сначала создайте записку и приложите ссылку');
+    }
+    if(type==='memo' && (!v.amount || !v.reason)) return bad('Укажите сумму и обоснование');
+    if(type==='contract' && !v.doc) return bad('Приложите проект договора (ссылка)');
+    const now = Date.now();
+    const cpRec = v.cp ? accr.find(c=>c.id===v.cp) : null;
+    const base = { ...v, cpName: cpRec?cpRec.name:'', type, direction:'finance', dirSlug:v.dir };
+    const col = db.collection('proc_requests');
+    if(rec){
+      await col.doc(rec.id).update({ ...base, step:0, status:'work', returnReason:null, returnedBy:null, history:(d.history||[]).concat([{ts:now,who:procWho(),act:'Исправлено и отправлено заново'}]), ts:now });
+    } else {
+      await col.add({ ...base, step:0, status:'work', author:procWho(), history:[{ts:now,who:procWho(),act:'Отправлено'+(type==='payment'?'. Автоматическая проверка пройдена':'')}], ts:now });
+    }
+    m.close();
+  };
+}
+function openRequestCard(rec){
+  const d = rec.data, t = REQ_TYPES[d.type]; if(!t) return;
+  const st = reqStatus(d);
+  const dirName = (DIRECTIONS.find(x=>x.slug===d.dirSlug)||{}).name||'';
+  const row = (k,v)=> v ? `<div style="display:flex;gap:10px;padding:5px 0;border-bottom:1px solid var(--border);font-size:13px"><div style="width:150px;flex:none;color:var(--fg-muted)">${k}</div><div style="flex:1;word-break:break-word">${v}</div></div>` : '';
+  const link = u=> u ? `<a href="${procEsc(u)}" target="_blank" rel="noopener">${procEsc(u)}</a>` : '';
+  const route = t.route.map(([r,lab],i)=>`<span style="${i===d.step&&d.status!=='returned'?'font-weight:600':'color:var(--fg-muted)'}">${i<d.step?'✓ ':''}${REQ_ROLES[r]}</span>`).join(' → ');
+  const hist = (d.history||[]).slice().reverse().map(h=>`<div style="font-size:12.5px;padding:4px 0"><span style="color:var(--fg-muted)">${procDate(h.ts)} · ${procEsc(h.who)}</span><br>${procEsc(h.act)}${h.reason?` — <i>${procEsc(h.reason)}</i>`:''}</div>`).join('');
+  const body = `<div style="margin-bottom:10px"><span class="pill ${st.cls}">${procEsc(st.label)}</span></div><div style="font-size:16px;font-weight:600;margin-bottom:8px">${procEsc(d.title)}</div>`
+    + row('Подразделение',procEsc(dirName)) + row('Контрагент',procEsc(d.cpName)) + row('Сумма', d.amount?procEsc(d.amount)+' ₸':'') + row('Статья бюджета',procEsc(d.budget))
+    + row('Обоснование',procEsc(d.reason)) + row('Счёт',link(d.invoice)) + row('Договор',link(d.contract)) + row('Записка',link(d.memo)) + row('Документ',link(d.doc)) + row('Автор',procEsc(d.author))
+    + `<div style="margin-top:12px;font-size:12.5px">${route}</div>` + (t.provisional?`<div style="font-size:12px;color:var(--fg-muted);margin-top:4px">Маршрут предварительный, уточним.</div>`:'')
+    + (d.status==='returned' ? `<div class="banner" style="margin-top:12px"><b>Возвращено:</b> ${procEsc(d.returnReason||'')}<br><span style="font-size:12px;color:var(--fg-muted)">${procEsc(d.returnedBy||'')}</span></div>` : '')
+    + `<div class="modal-label" style="margin-top:16px">История</div>${hist||'<div class="empty">Пока пусто</div>'}`;
+  let foot = '';
+  if(d.status==='returned') foot = `<span></span><button class="btn" id="rqEdit">Исправить и отправить заново</button>`;
+  else if(d.step<t.route.length){ const [r,lab] = t.route[d.step]; foot = `<button class="btn ghost" id="rqNo">Отклонить</button><button class="btn" id="rqOk">${lab}</button>`; }
+  const m = procModal(t.title, body, foot);
+  const col = db.collection('proc_requests');
+  const q = id=>m.bg.querySelector(id);
+  if(q('#rqOk')) q('#rqOk').onclick = async ()=>{
+    const [r,lab] = t.route[d.step];
+    await col.doc(rec.id).update({ step:d.step+1, history:(d.history||[]).concat([{ts:Date.now(),who:procWho(),act:REQ_ROLES[r]+': '+(lab==='Согласовать'?'согласовано':lab.toLowerCase())}]), ts:Date.now() });
+    m.close();
+  };
+  if(q('#rqNo')) q('#rqNo').onclick = ()=>{
+    const [r] = t.route[d.step];
+    procAskReason('Отклонить', 'Например: доработать, нет бюджета', async reason=>{
+      await col.doc(rec.id).update({ status:'returned', returnReason:reason, returnedBy:REQ_ROLES[r]+' · '+procWho(), history:(d.history||[]).concat([{ts:Date.now(),who:procWho(),act:REQ_ROLES[r]+': отклонено',reason}]), ts:Date.now() });
+      m.close();
+    });
+  };
+  if(q('#rqEdit')) q('#rqEdit').onclick = ()=>{ m.close(); openRequestForm(d.type, rec); };
+}
 function openProcessCreateMenu(){
   const types = [
     {id:'counterparty', title:'Контрагент', sub:'Аккредитация нового контрагента', on:true},
-    {id:'payment', title:'Заявка на оплату', sub:'Скоро'},
-    {id:'memo', title:'Служебная записка вне бюджета', sub:'Скоро'},
-    {id:'contract', title:'Согласование договора', sub:'Скоро'},
-    {id:'hr', title:'Приём на работу, приказы', sub:'Скоро'}
+    ...Object.entries(REQ_TYPES).map(([id,t])=>({id, title:t.title, sub:t.menuSub, on:true}))
   ];
-  const m = procModal('Что создаём?', types.map(t=>`<div class="item" data-t="${t.id}" style="margin-bottom:8px;align-items:center;${t.on?'cursor:pointer':'opacity:.55'}"><div style="flex:1"><div class="txt" style="font-weight:600">${t.title}</div><div style="font-size:12px;color:var(--fg-muted)">${t.sub}</div></div>${t.on?'<span style="color:var(--accent)">›</span>':''}</div>`).join(''), '');
-  m.bg.querySelectorAll('.item').forEach(el=>{ if(el.dataset.t==='counterparty') el.onclick = ()=>{ m.close(); openCounterpartyForm(null); }; });
+  const m = procModal('Что создаём?', types.map(t=>`<div class="item" data-t="${t.id}" style="margin-bottom:8px;align-items:center;cursor:pointer"><div style="flex:1"><div class="txt" style="font-weight:600">${t.title}</div><div style="font-size:12px;color:var(--fg-muted)">${t.sub}</div></div>${t.on?'<span style="color:var(--accent)">›</span>':''}</div>`).join(''), '');
+  m.bg.querySelectorAll('.item').forEach(el=>{ el.onclick = ()=>{ m.close(); if(el.dataset.t==='counterparty') openCounterpartyForm(null); else openRequestForm(el.dataset.t, null); }; });
 }
 
 function renderProcesses(panel){
@@ -1705,7 +1799,7 @@ function renderProcesses(panel){
       + `</div>`;
     return;
   }
-  body.innerHTML = `<div style="display:flex;justify-content:flex-end;margin-bottom:10px"><button class="btn" id="procCreate">+ Создать</button></div><div class="card"><div style="font-weight:600;margin-bottom:10px">Аккредитация контрагентов</div><div class="modal-btns" id="cpFilters" style="margin-bottom:10px"></div><div class="list" id="cpList"></div></div>`;
+  body.innerHTML = `<div style="display:flex;justify-content:flex-end;margin-bottom:10px"><button class="btn" id="procCreate">+ Создать</button></div><div class="card"><div style="font-weight:600;margin-bottom:10px">Аккредитация контрагентов</div><div class="modal-btns" id="cpFilters" style="margin-bottom:10px"></div><div class="list" id="cpList"></div></div><div class="card" style="margin-top:14px"><div style="font-weight:600;margin-bottom:10px">Заявки и согласования</div><div class="list" id="reqList"></div></div>`;
   let filter = 'work', docs = [];
   const listEl = body.querySelector('#cpList'), fEl = body.querySelector('#cpFilters');
   const match = d=> filter==='all' ? true : filter==='work' ? ['accounting','robot','finance'].includes(d.data.stage) : d.data.stage===filter;
@@ -1715,11 +1809,18 @@ function renderProcesses(panel){
     fEl.querySelectorAll('button').forEach(b=> b.onclick = ()=>{ filter=b.dataset.f; draw(); });
     const rows = docs.filter(match);
     if(!rows.length){ listEl.innerHTML = `<div class="empty">${docs.length?'В этом списке пусто':'Контрагентов пока нет. Нажмите «Новый контрагент».'}</div>`; return; }
-    listEl.innerHTML = rows.map(r=>{ const d=r.data, st=CP_STAGES[d.stage]||{label:d.stage,cls:''}; return `<div class="item" data-id="${r.id}" style="cursor:pointer;align-items:center;gap:10px"><div style="flex:1;min-width:0"><div class="txt" style="font-weight:600">${procEsc(d.name)}</div><div style="font-size:12px;color:var(--fg-muted)">БИН ${procEsc(d.bin)} · ${d.kind==='perm'?'постоянный':'разовый'}${d.sphere?' · '+procEsc(d.sphere):''}</div></div><span class="pill ${st.cls}">${st.label}</span></div>`; }).join('');
+    listEl.innerHTML = rows.map(r=>{ const d=r.data, st=CP_STAGES[d.stage]||{label:d.stage,cls:''}; return `<div class="item" data-id="${r.id}" style="cursor:pointer;align-items:center;gap:10px"><div style="flex:1;min-width:0"><div class="txt" style="font-weight:600">${procEsc(d.name)}</div><div style="font-size:12px;color:var(--fg-muted)">БИН ${procEsc(d.bin)}${CP_SPHERES[d.sphereType]?' · '+CP_SPHERES[d.sphereType]:''}${d.sphere?' · '+procEsc(d.sphere):''}</div></div><span class="pill ${st.cls}">${st.label}</span></div>`; }).join('');
     listEl.querySelectorAll('.item').forEach(el=> el.onclick = ()=>{ const r = docs.find(x=>x.id===el.dataset.id); if(r) openCounterpartyCard(r); });
   }
   unsubs['counterparties'] = db.collection('counterparties').orderBy('ts','desc').limit(300).onSnapshot(snap=>{
     docs = snap.docs.map(d=>({id:d.id, data:d.data()})); draw();
+  });
+  const reqEl = body.querySelector('#reqList');
+  unsubs['proc_requests'] = db.collection('proc_requests').orderBy('ts','desc').limit(300).onSnapshot(snap=>{
+    const rs = snap.docs.map(d=>({id:d.id, data:d.data()}));
+    if(!rs.length){ reqEl.innerHTML = '<div class="empty">Заявок пока нет. Нажмите «Создать».</div>'; return; }
+    reqEl.innerHTML = rs.map(r=>{ const d=r.data, t=REQ_TYPES[d.type]||{title:d.type}, st=reqStatus(d); return `<div class="item" data-id="${r.id}" style="cursor:pointer;align-items:center;gap:10px"><div style="flex:1;min-width:0"><div class="txt" style="font-weight:600">${procEsc(d.title||t.title)}</div><div style="font-size:12px;color:var(--fg-muted)">${procEsc(t.title)}${d.amount?' · '+procEsc(d.amount)+' ₸':''}</div></div><span class="pill ${st.cls}">${procEsc(st.label)}</span></div>`; }).join('');
+    reqEl.querySelectorAll('.item').forEach(el=> el.onclick = ()=>{ const r = rs.find(x=>x.id===el.dataset.id); if(r) openRequestCard(r); });
   });
   body.querySelector('#procCreate').onclick = openProcessCreateMenu;
 }
