@@ -1577,7 +1577,7 @@ const CP_FILTERS = [['work','В работе'],['accredited','Аккредито
 const PROC_REGULATIONS = [
   {title:'Аккредитация контрагента', route:['Менеджер вносит данные','Бухгалтерия: реквизиты, адреса, налоги, НДС','Робот-комплаенс: риски, долги, сфера, сайт, отзывы','Финансовый директор: согласовать или отклонить','Контрагент аккредитован'], note:'Ошибка в данных или отказ возвращает карточку менеджеру, причина обязательна.'},
   {title:'Заявка на оплату', route:['Менеджер отправляет заявку','Автоматическая проверка: контрагент, счёт, договор, бюджет','Руководитель направления','Финансовый директор','Бухгалтерия: поручение и закрывающие документы','Генеральный директор','Бухгалтерия проводит платёж'], note:'Любой отказ возвращает заявку автору, причина обязательна. Автопроверка пока проверяет контрагента, счёт и статью; остаток бюджета проверим, когда заведём бюджеты.', status:'работает, бюджеты позже'},
-  {title:'Служебная записка вне бюджета', route:['Менеджер пишет записку: обоснование, сумма, статья','Финансовый директор','Генеральный директор','Решение по бюджету: изменить бюджет или в рамках лимита','Обычная заявка на оплату со ссылкой на записку'], note:'Отказ любого согласующего возвращает записку автору, причина обязательна.', status:'работает'}
+  {title:'Служебная записка', route:['Менеджер пишет записку: о чём, обоснование, сумма, статья','Финансовый директор','Генеральный директор','Решение: например, изменить бюджет или платить в рамках лимита','Если нужен платёж: обычная заявка на оплату со ссылкой на записку'], note:'Отказ любого согласующего возвращает записку автору, причина обязательна.', status:'работает'}
 ];
 function procEsc(v){ return String(v??'').replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 function procWho(){ return (currentProfile && currentProfile.email) || 'Администратор'; }
@@ -1691,12 +1691,10 @@ const REQ_ROLES = { head:'Руководитель направления', fd:'
 const REQ_TYPES = {
   payment:{ title:'Заявка на оплату', menuSub:'Платёж контрагенту по счёту', route:[['head','Согласовать'],['fd','Согласовать'],['acc','Поручение сформировано, закрывающие проверены'],['gd','Согласовать'],['acc','Платёж проведён']],
     fields:[['dir','select','Подразделение'],['title','text','Наименование платежа'],['cp','cp','Контрагент (только аккредитованные)'],['amount','text','Сумма, ₸'],['budgetId','budget','Статья бюджета'],['invoice','url','Счёт: ссылка на файл в Google Диске'],['contract','url','Договор: ссылка (если нужен)'],['memo','url','Служебная записка: ссылка (если вне бюджета)']] },
-  memo:{ title:'Служебная записка вне бюджета', menuSub:'Платёж, которого нет в бюджете', route:[['fd','Согласовать'],['gd','Согласовать']],
-    fields:[['dir','select','Подразделение'],['title','text','Тема'],['amount','text','Сумма, ₸'],['budget','text','Статья'],['reason','area','Обоснование'],['doc','url','Документ: ссылка в Google Диске']] },
+  memo:{ title:'Служебная записка', menuSub:'Обращение к руководству по любому вопросу', route:[['fd','Согласовать'],['gd','Согласовать']],
+    fields:[['dir','select','Подразделение'],['topic','enum','О чём записка',['Внебюджетный платёж','Перенос между статьями бюджета','Другой вопрос']],['title','text','Тема'],['amount','text','Сумма, ₸ (если есть)'],['budget','text','Статья (если есть)'],['reason','area','Обоснование'],['doc','url','Документ: ссылка в Google Диске']] },
   contract:{ title:'Согласование договора', menuSub:'Договор на подпись', provisional:true, route:[['head','Согласовать'],['fd','Согласовать'],['gd','Согласовать']],
-    fields:[['dir','select','Подразделение'],['title','text','Название договора'],['cp','cp','Контрагент (только аккредитованные)'],['amount','text','Сумма, ₸'],['reason','area','Предмет и условия'],['doc','url','Проект договора: ссылка в Google Диске']] },
-  hr:{ title:'Приём на работу, приказы', menuSub:'Кадровые документы', provisional:true, route:[['head','Согласовать'],['gd','Согласовать']],
-    fields:[['dir','select','Подразделение'],['title','text','Что оформляем (приём, перевод, увольнение, приказ)'],['reason','area','Детали'],['doc','url','Документ: ссылка в Google Диске']] }
+    fields:[['dir','select','Подразделение'],['title','text','Название договора'],['cp','cp','Контрагент (только аккредитованные)'],['amount','text','Сумма, ₸'],['reason','area','Предмет и условия'],['doc','url','Проект договора: ссылка в Google Диске']] }
 };
 function reqStatus(d){
   if(d.status==='returned') return {label:'Возвращена автору', cls:'bad'};
@@ -1771,10 +1769,11 @@ function openRequestForm(type, rec){
   const t = REQ_TYPES[type], d = rec ? rec.data : {};
   const accr = lsRead('counterparties').filter(c=>c.stage==='accredited');
   const inp = 'width:100%;background:var(--surface-2);border:1px solid var(--border);border-radius:7px;color:var(--fg);padding:8px 10px;font:inherit';
-  const fld = ([k,kind,label])=>{
+  const fld = ([k,kind,label,opts])=>{
     let ctl;
     if(kind==='select') ctl = `<select id="rf_${k}">${ACTIVE_DIRECTIONS.map(x=>`<option value="${x.slug}" ${d[k]===x.slug?'selected':''}>${x.name}</option>`).join('')}</select>`;
     else if(kind==='cp') ctl = accr.length ? `<select id="rf_${k}"><option value="">— выберите —</option>${accr.map(c=>`<option value="${c.id}" ${d[k]===c.id?'selected':''}>${procEsc(c.name)} · ${procEsc(c.bin)}</option>`).join('')}</select>` : `<div style="font-size:12.5px;color:var(--bad)">Аккредитованных контрагентов пока нет. Сначала создайте и проведите контрагента.</div>`;
+    else if(kind==='enum') ctl = `<select id="rf_${k}">${opts.map(o=>`<option ${d[k]===o?'selected':''}>${o}</option>`).join('')}</select>`;
     else if(kind==='budget') ctl = `<select id="rf_${k}">${budgetOptionsHtml(d.dir||(ACTIVE_DIRECTIONS[0]||{}).slug, d.budgetId, rec&&rec.id)}</select>`;
     else if(kind==='area') ctl = `<textarea id="rf_${k}" rows="4">${procEsc(d[k]||'')}</textarea>`;
     else ctl = `<input id="rf_${k}" value="${procEsc(d[k]||'')}" style="${inp}">`;
@@ -1804,7 +1803,8 @@ function openRequestForm(type, rec){
         v.budget = bd.article+' · '+bd.period;
       }
     }
-    if(type==='memo' && (!v.amount || !v.reason)) return bad('Укажите сумму и обоснование');
+    if(type==='memo' && !v.reason) return bad('Заполните обоснование');
+    if(type==='memo' && v.topic!=='Другой вопрос' && !v.amount) return bad('Укажите сумму');
     if(type==='contract' && !v.doc) return bad('Приложите проект договора (ссылка)');
     const now = Date.now();
     const cpRec = v.cp ? accr.find(c=>c.id===v.cp) : null;
@@ -1828,7 +1828,7 @@ function openRequestCard(rec){
   const hist = (d.history||[]).slice().reverse().map(h=>`<div style="font-size:12.5px;padding:4px 0"><span style="color:var(--fg-muted)">${procDate(h.ts)} · ${procEsc(h.who)}</span><br>${procEsc(h.act)}${h.reason?` — <i>${procEsc(h.reason)}</i>`:''}</div>`).join('');
   const body = `<div style="margin-bottom:10px"><span class="pill ${st.cls}">${procEsc(st.label)}</span></div><div style="font-size:16px;font-weight:600;margin-bottom:8px">${procEsc(d.title)}</div>`
     + row('Подразделение',procEsc(dirName)) + row('Контрагент',procEsc(d.cpName)) + row('Сумма', d.amount?procEsc(d.amount)+' ₸':'') + row('Статья бюджета',procEsc(d.budget))
-    + row('Обоснование',procEsc(d.reason)) + row('Счёт',link(d.invoice)) + row('Договор',link(d.contract)) + row('Записка',link(d.memo)) + row('Документ',link(d.doc)) + row('Автор',procEsc(d.author))
+    + row('О чём',procEsc(d.topic)) + row('Обоснование',procEsc(d.reason)) + row('Счёт',link(d.invoice)) + row('Договор',link(d.contract)) + row('Записка',link(d.memo)) + row('Документ',link(d.doc)) + row('Автор',procEsc(d.author))
     + `<div style="margin-top:12px;font-size:12.5px">${route}</div>` + (t.provisional?`<div style="font-size:12px;color:var(--fg-muted);margin-top:4px">Маршрут предварительный, уточним.</div>`:'')
     + (d.status==='returned' ? `<div class="banner" style="margin-top:12px"><b>Возвращено:</b> ${procEsc(d.returnReason||'')}<br><span style="font-size:12px;color:var(--fg-muted)">${procEsc(d.returnedBy||'')}</span></div>` : '')
     + `<div class="modal-label" style="margin-top:16px">История</div>${hist||'<div class="empty">Пока пусто</div>'}`;
