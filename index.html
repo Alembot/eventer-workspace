@@ -1681,6 +1681,18 @@ function openCounterpartyCard(rec){
   if(q('#cpEdit')) q('#cpEdit').onclick = ()=>{ m.close(); openCounterpartyForm(rec); };
 }
 
+function openProcessCreateMenu(){
+  const types = [
+    {id:'counterparty', title:'Контрагент', sub:'Аккредитация нового контрагента', on:true},
+    {id:'payment', title:'Заявка на оплату', sub:'Скоро'},
+    {id:'memo', title:'Служебная записка вне бюджета', sub:'Скоро'},
+    {id:'contract', title:'Согласование договора', sub:'Скоро'},
+    {id:'hr', title:'Приём на работу, приказы', sub:'Скоро'}
+  ];
+  const m = procModal('Что создаём?', types.map(t=>`<div class="item" data-t="${t.id}" style="margin-bottom:8px;align-items:center;${t.on?'cursor:pointer':'opacity:.55'}"><div style="flex:1"><div class="txt" style="font-weight:600">${t.title}</div><div style="font-size:12px;color:var(--fg-muted)">${t.sub}</div></div>${t.on?'<span style="color:var(--accent)">›</span>':''}</div>`).join(''), '');
+  m.bg.querySelectorAll('.item').forEach(el=>{ if(el.dataset.t==='counterparty') el.onclick = ()=>{ m.close(); openCounterpartyForm(null); }; });
+}
+
 function renderProcesses(panel){
   const tab = state.tab==='regulations' ? 'regulations' : 'requests';
   const tabs = [['requests','Заявки'],['regulations','Регламенты']];
@@ -1693,7 +1705,7 @@ function renderProcesses(panel){
       + `</div>`;
     return;
   }
-  body.innerHTML = `<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px"><div style="font-weight:600">Аккредитация контрагентов</div><button class="btn" id="cpNew">+ Новый контрагент</button></div><div class="modal-btns" id="cpFilters" style="margin-bottom:10px"></div><div class="list" id="cpList"></div></div>`;
+  body.innerHTML = `<div style="display:flex;justify-content:flex-end;margin-bottom:10px"><button class="btn" id="procCreate">+ Создать</button></div><div class="card"><div style="font-weight:600;margin-bottom:10px">Аккредитация контрагентов</div><div class="modal-btns" id="cpFilters" style="margin-bottom:10px"></div><div class="list" id="cpList"></div></div>`;
   let filter = 'work', docs = [];
   const listEl = body.querySelector('#cpList'), fEl = body.querySelector('#cpFilters');
   const match = d=> filter==='all' ? true : filter==='work' ? ['accounting','robot','finance'].includes(d.data.stage) : d.data.stage===filter;
@@ -1709,7 +1721,7 @@ function renderProcesses(panel){
   unsubs['counterparties'] = db.collection('counterparties').orderBy('ts','desc').limit(300).onSnapshot(snap=>{
     docs = snap.docs.map(d=>({id:d.id, data:d.data()})); draw();
   });
-  body.querySelector('#cpNew').onclick = ()=> openCounterpartyForm(null);
+  body.querySelector('#procCreate').onclick = openProcessCreateMenu;
 }
 
 function render(){
