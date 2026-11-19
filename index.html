@@ -472,12 +472,12 @@ const DIRECTIONS = [
   {slug:'artist', n:'08', name:'Менеджмент артиста'},
   {slug:'events', n:'09', name:'Ивенты и концерты'},
   // Keep the legacy slug so existing records and links stay in place.
-  {slug:'smm', n:'10', name:'Креатив'},
-  {slug:'smm_support', n:'11', name:'SMM', kind:'support'},
-  {slug:'marketing', n:'12', name:'Маркетинг и продажи'},
-  {slug:'finance', n:'13', name:'Финансы и инвестиции'},
-  {slug:'backoffice', n:'14', name:'HR'},
-  {slug:'accounting', n:'15', name:'Бухгалтерия', kind:'support'},
+  {slug:'smm', n:'10', name:'Креативный отдел', service:true},
+  {slug:'smm_support', n:'11', name:'Отдел SMM', kind:'support', service:true},
+  {slug:'marketing', n:'12', name:'Отдел маркетинга и продаж', service:true},
+  {slug:'finance', n:'13', name:'Финансовый отдел', service:true},
+  {slug:'backoffice', n:'14', name:'HR', service:true},
+  {slug:'accounting', n:'15', name:'Бухгалтерия', kind:'support', service:true},
   {slug:'slt', n:'09', name:'СЛТ', hidden:true},
 ];
 // Hide archived directions in navigation and new-record pickers, but retain
@@ -907,10 +907,13 @@ function renderRail(){
   const ul = document.getElementById('railList');
   const empDir = employeeDirection();
   const dirsToShow = empDir ? DIRECTIONS.filter(d=>d.slug===empDir) : ACTIVE_DIRECTIONS;
-  let html = dirsToShow.map(d => `
+  let svcShown = false;
+  let html = dirsToShow.map(d => {
+    const head = (d.service && !svcShown) ? (svcShown=true, '<li class="rail-sep" style="list-style:none;margin:14px 0 4px;padding:0 12px;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--fg-muted);pointer-events:none">Службы</li>') : '';
+    return head + `
     <li class="rail-item ${d.slug===state.dir?'active':''}" data-dir="${d.slug}">
       <span class="n">${d.n}</span><span>${d.name}</span>
-    </li>`).join('');
+    </li>`; }).join('');
   ul.innerHTML = html;
   ul.querySelectorAll('.rail-item').forEach(el=>{
     el.addEventListener('click', ()=>{
@@ -1597,7 +1600,7 @@ function render(){
     </div>` : ''}
     <div class="header">
       <div>
-        <div class="eyebrow">${dir.slug==='workspace' ? '<a href="#home" style="color:inherit">главная</a> · общие записи' : `${dir.n} · ${dir.kind==='support' ? 'поддерживающее направление' : 'направление'}`}</div>
+        <div class="eyebrow">${dir.slug==='workspace' ? '<a href="#home" style="color:inherit">главная</a> · общие записи' : `${dir.n} · ${dir.service ? 'служба' : (dir.kind==='support' ? 'поддерживающее направление' : 'направление')}`}</div>
         <h1>${dir.name}</h1>
       </div>
     </div>
