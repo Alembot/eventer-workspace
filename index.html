@@ -282,6 +282,17 @@ body.modal-open{position:fixed;left:0;right:0;overflow:hidden}
 .dh-ask{display:flex;gap:8px;margin-top:8px}.dh-ans{margin-top:6px;font-size:12px;color:var(--fg-muted)}
 .dh-to{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}.dh-to button{font:inherit;font-size:12px;border:1px solid var(--border);background:transparent;color:var(--fg);border-radius:99px;padding:4px 10px;cursor:pointer}.dh-to button.on{background:var(--fg);color:var(--bg)}
 .dh-send{display:flex;gap:8px}.dh-send input{flex:1;min-width:0}
+
+.dh-search{width:100%;box-sizing:border-box;margin-bottom:8px}
+.dh-filters{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}.dh-filters button{font:inherit;font-size:12px;border:1px solid var(--border);background:transparent;color:var(--fg);border-radius:99px;padding:4px 10px;cursor:pointer}.dh-filters button.on{background:var(--fg);color:var(--bg)}
+.dh-threads{max-height:60vh;overflow:auto}
+.dh-thread{display:flex;gap:10px;align-items:center;padding:9px 4px;border-top:1px solid var(--border);cursor:pointer}
+.dh-av{flex:none;width:36px;height:36px;border-radius:50%;background:var(--surface-2);display:inline-flex;align-items:center;justify-content:center;font-weight:600;font-size:14px}.dh-av.grp{background:var(--fg);color:var(--bg)}
+.dh-tb{flex:1;min-width:0}.dh-tr{display:flex;justify-content:space-between;gap:8px;align-items:center}.dh-tr b{font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.dh-tr time{font-size:11.5px;color:var(--fg-muted);flex:none}
+.dh-sn{font-size:12.5px;color:var(--fg-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dh-badge{flex:none;background:var(--bad);color:#fff;border-radius:99px;min-width:18px;height:18px;font-size:11px;font-weight:600;display:inline-flex;align-items:center;justify-content:center;padding:0 5px}
+.dh-star{flex:none;border:0;background:transparent;font-size:16px;color:var(--fg-muted);cursor:pointer;padding:2px}.dh-star.on{color:#e0a32e}
+.dh-th{align-items:center;gap:8px;justify-content:flex-start}.dh-back{border:0;background:transparent;font-size:18px;cursor:pointer;color:var(--fg)}.dh-obs{font-size:11.5px;color:var(--fg-muted);margin-left:auto}
 /* Unread-message dot on a direction's nav entry (sidebar rail and the mobile sheet) */
 .rail-item.has-msg{position:relative}
 /* Left-menu unread dot hidden; unread message state is preserved. */
@@ -1921,49 +1932,70 @@ function renderProcesses(panel){
   body.querySelector('#procCreate').onclick = openProcessCreateMenu;
 }
 
-// ---------- «Главная» направления (шаблон, 20.11.2026): слева задачи, справа чат направления ----------
-// Пилот — Афиша; остальные направления подключаются добавлением slug в DIR_HOME_SLUGS.
-// Правила переписки (решение Кайрата 20.11.2026): РМ направления пишет только Гл менеджеру;
-// РМ направления и руководителю службы пишут руководитель направления, Гл менеджер и Кайрат.
+// ---------- «Главная» направления (шаблон, 20.11.2026): слева задачи, справа чаты как в WhatsApp ----------
+// Пилот — Афиша; остальные направления подключаются добавлением slug в DIR_HOME_SLUGS и списка РМ в CHAT_RMS.
+// Чат: либо группа направления (видят все в направлении), либо личный (поле participants — видят только участники;
+// закрыто правилами базы chat_private_ok). Участники — ключи ролей: kairat, general, head:<направление>,
+// svc:<служба>, rm:<направление-проект>. Формат сообщения менеджера из чата Claude (пишет прямо в базу):
+//   collection 'messages', direction, chat:true, thread ('g:<slug>' или 'dm:<ключ1>|<ключ2>' — ключи по алфавиту),
+//   participants (только для личного), author, authorKey, text, ts, ask:true (если нужно согласование Кайрата).
 const DIR_HOME_SLUGS = ['afisha'];
-const CHAT_TARGETS = [
-  {k:'general', label:'Гл менеджер'}, {k:'kairat', label:'Кайрат'}, {k:'manager', label:'РМ направления'},
-  {k:'head', label:'Руководитель направления'}, {k:'service', label:'Руководитель службы'}
-];
+const CHAT_RMS = { afisha:[['rm:afisha-db','РМ Афиша База данных'],['rm:afisha-app','РМ Афиша Приложение'],['rm:afisha-marketing','РМ Афиша Маркетинг'],['rm:afisha-producer','РМ Афиша Продюсер']] };
 const CHAT_ALLOWED = {
   kairat:['general','manager','head','service'], general:['kairat','manager','head','service'],
   head:['general','manager','service','kairat'], service:['general'], manager:['general']
 };
-function chatSenderRole(){
+function chatClass(k){ return k==='kairat'?'kairat':k==='general'?'general':k.startsWith('head:')?'head':k.startsWith('svc:')?'service':'manager'; }
+function chatMyKey(){
+  if(viewAsDirection) return 'head:'+viewAsDirection;
   if(isAdmin()) return 'kairat';
-  const r = currentProfile && currentProfile.role;
-  return r==='direction_head' ? 'head' : r==='service_head' ? 'service' : 'manager';
+  const p = currentProfile || {};
+  return p.role==='direction_head' ? 'head:'+p.direction : p.role==='service_head' ? 'svc:'+p.service : 'rm:'+(p.direction||'');
 }
-function chatSeenKey(slug){ return 'eventerChatSeen_'+slug; }
+function chatPeople(slug){
+  const dn = (DIRECTIONS.find(d=>d.slug===slug)||{}).name || slug;
+  return [{k:'kairat',name:'Кайрат'},{k:'general',name:'Гл менеджер'},{k:'head:'+slug,name:'Руководитель '+dn},
+    ...(CHAT_RMS[slug]||[]).map(([k,name])=>({k,name})),
+    ...DIRECTIONS.filter(d=>d.service).map(d=>({k:'svc:'+d.slug,name:d.name}))];
+}
+function chatDmId(a,b){ return 'dm:'+[a,b].sort().join('|'); }
+function chatThreads(slug, msgs){
+  const me = chatMyKey(), owner = me==='kairat';
+  const dn = (DIRECTIONS.find(d=>d.slug===slug)||{}).name || slug;
+  const people = chatPeople(slug), nameOf = k=> (people.find(p=>p.k===k)||{name:k}).name;
+  const allowed = CHAT_ALLOWED[chatClass(me)] || ['general'];
+  const map = {};
+  map['g:'+slug] = { id:'g:'+slug, title:'Вся '+dn, group:true, msgs:[] };
+  people.filter(p=> p.k!==me && allowed.includes(chatClass(p.k))).forEach(p=>{ const id = chatDmId(me,p.k); map[id] = { id, title:p.name, group:false, members:[me,p.k], msgs:[] }; });
+  msgs.forEach(m=>{
+    const id = m.thread || ('g:'+slug);
+    if(!map[id]){
+      if(!(m.participants && (owner || m.participants.includes(me)))) return;
+      map[id] = { id, title: m.participants.map(nameOf).join(' ↔ '), group:false, members:m.participants, observer:!m.participants.includes(me), msgs:[] };
+    }
+    map[id].msgs.push(m);
+  });
+  Object.values(map).forEach(t=>{ t.msgs.sort((a,b)=>(a.ts||0)-(b.ts||0)); t.last = t.msgs[t.msgs.length-1]; });
+  return Object.values(map);
+}
+function chatSeenMap(slug){ try{ return JSON.parse(localStorage.getItem('eventerChatSeen2_'+slug)||'{}'); }catch(e){ return {}; } }
+function chatUnreadIn(t, seen, me){ return t.observer ? 0 : t.msgs.filter(m=> (m.ts||0)>(seen[t.id]||0) && m.authorKey!==me).length; }
 function chatUnread(slug){
-  const seen = parseInt(localStorage.getItem(chatSeenKey(slug))||'0',10) || 0;
-  const mine = chatSenderRole();
-  return lsRead('messages').filter(m=> m.chat && m.direction===slug && (m.ts||0)>seen && m.authorRole!==mine && (!m.to || !m.to.length || (Array.isArray(m.to)?m.to:[m.to]).some(t=> t===mine || t==='all'))).length;
+  const me = chatMyKey(), seen = chatSeenMap(slug);
+  return chatThreads(slug, lsRead('messages').filter(m=> m.chat && m.direction===slug)).reduce((a,t)=> a+chatUnreadIn(t,seen,me), 0);
 }
-function chatMarkSeen(slug){
-  const ts = lsRead('messages').filter(m=> m.chat && m.direction===slug).reduce((a,m)=> Math.max(a,m.ts||0), Date.now());
-  localStorage.setItem(chatSeenKey(slug), String(ts));
+function chatMarkSeen(slug, threadId, ts){
+  const seen = chatSeenMap(slug); seen[threadId] = Math.max(seen[threadId]||0, ts||Date.now());
+  localStorage.setItem('eventerChatSeen2_'+slug, JSON.stringify(seen));
   refreshUnreadBadges();
 }
 function renderDirHome(panel, slug){
   const esc = v=> String(v??'').replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-  const myRole = chatSenderRole();
-  const allowed = CHAT_ALLOWED[myRole] || ['general'];
-  const tLabel = k=> (CHAT_TARGETS.find(t=>t.k===k)||{label:k}).label;
+  const me = chatMyKey();
   panel.innerHTML = `
     <div class="dh-grid">
       <div class="dh-main"><div class="card"><div class="dh-h"><h3>Задачи</h3><a href="#${slug}/tasks" class="dh-all">Все задачи</a></div><div id="dhTasks"><div class="empty">Загрузка…</div></div></div></div>
-      <div class="dh-side"><div class="card dh-chat">
-        <div class="dh-h"><h3>Чат направления</h3></div>
-        <div class="dh-msgs" id="dhMsgs"><div class="empty">Загрузка…</div></div>
-        <div class="dh-to" id="dhTo">${allowed.map((k,i)=>`<button type="button" data-k="${k}" class="${i===0?'on':''}">${esc(tLabel(k))}</button>`).join('')}</div>
-        <div class="dh-send"><input type="text" id="dhInput" placeholder="Сообщение…"/><button class="btn" id="dhSend">Отправить</button></div>
-      </div></div>
+      <div class="dh-side"><div class="card dh-chat" id="dhChat"><div class="empty">Загрузка…</div></div></div>
     </div>`;
   if(!db){ panel.querySelector('#dhTasks').innerHTML = '<div class="empty">База данных недоступна.</div>'; return; }
   // --- задачи ---
@@ -1984,42 +2016,85 @@ function renderDirHome(panel, slug){
     };
     tEl.innerHTML = groups.filter(g=>g[1].length).map(([name,list])=>`<div class="dh-grp"><div class="dh-gh">${name} · ${list.length}</div>${list.slice(0,10).map(row).join('')}${list.length>10?`<a class="dh-more" href="#${slug}/tasks">ещё ${list.length-10}</a>`:''}</div>`).join('') || '<div class="empty">Открытых задач нет.</div>';
   }, err=>{ tEl.innerHTML = `<div class="empty">Нет доступа (${esc(err.code||'')}).</div>`; });
-  // --- чат ---
-  const mEl = panel.querySelector('#dhMsgs');
+  // --- чаты ---
+  const cEl = panel.querySelector('#dhChat');
   const col = db.collection('messages');
-  const meName = async()=> (user && (await user.me())?.name) || (myRole==='kairat'?'Кайрат':'Сотрудник');
-  unsubs['dh-chat'] = col.where('direction','==',slug).orderBy('ts','desc').limit(80).onSnapshot(snap=>{
-    const msgs = snap.docs.map(d=>d.data()).filter(m=> m.chat).reverse();
-    if(!msgs.length){ mEl.innerHTML = '<div class="empty">Сообщений пока нет.</div>'; return; }
-    mEl.innerHTML = msgs.map(m=>{
-      const to = (Array.isArray(m.to)?m.to:(m.to?[m.to]:[])).map(tLabel).join(', ');
-      const ask = (m.ask && !m.answer && myRole==='kairat')
-        ? `<div class="dh-ask"><button class="btn" data-ans="yes" data-id="${esc(m.id)}">Согласовать</button><button class="btn ghost" data-ans="no" data-id="${esc(m.id)}">Не сейчас</button></div>`
-        : (m.ask && m.answer ? `<div class="dh-ans">${m.answer==='yes'?'✓ Согласовано':'Отложено'}</div>` : '');
-      return `<div class="dh-m ${m.authorRole===myRole?'me':''}"><div class="dh-mh"><b>${esc(m.author||'')}</b>${to?` <span>→ ${esc(to)}</span>`:''} <time>${esc(m.ts?new Date(m.ts).toLocaleString('ru-RU',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'')}</time></div><div class="dh-mt">${esc(m.text||'')}</div>${ask}</div>`;
-    }).join('');
-    mEl.scrollTop = mEl.scrollHeight;
-    chatMarkSeen(slug);
-  }, err=>{ mEl.innerHTML = `<div class="empty">Нет доступа (${esc(err.code||'')}).</div>`; });
-  mEl.addEventListener('click', async e=>{
-    const b = e.target.closest('[data-ans]'); if(!b) return;
-    b.disabled = true;
-    const ans = b.dataset.ans;
-    try{
-      await col.doc(b.dataset.id).update({ answer: ans, answeredAt: Date.now() });
-      await col.add({ direction:slug, chat:true, author: await meName(), authorRole:myRole, to:['general'], text: ans==='yes' ? 'Согласовано, начинай.' : 'Пока не начинай.', ts: Date.now() });
-    }catch(err){ b.disabled = false; }
-  });
-  let target = allowed[0];
-  panel.querySelectorAll('#dhTo button').forEach(b=> b.onclick = ()=>{ target = b.dataset.k; panel.querySelectorAll('#dhTo button').forEach(x=> x.classList.toggle('on', x===b)); });
-  const input = panel.querySelector('#dhInput'), send = panel.querySelector('#dhSend');
-  async function submit(){
-    const text = input.value.trim(); if(!text || !allowed.includes(target)) return;
-    send.disabled = true; input.value = '';
-    try{ await col.add({ direction:slug, chat:true, author: await meName(), authorRole:myRole, to:[target], text, ts: Date.now() }); }catch(err){ input.value = text; }
-    send.disabled = false;
+  const prefId = 'chatprefs_'+me.replace(/[^a-z0-9]/gi,'_')+'_'+slug;
+  let msgs = [], favs = [], filter = 'all', query = '', openId = null;
+  const meName = async()=> (user && (await user.me())?.name) || (me==='kairat'?'Кайрат':'Сотрудник');
+  const fmtT = ts=>{ if(!ts) return ''; const d=new Date(ts), n=new Date(); return d.toDateString()===n.toDateString() ? d.toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'}) : d.toLocaleDateString('ru-RU',{day:'numeric',month:'short'}); };
+  const snippet = m=> m ? ((m.authorKey===me?'Вы: ':'')+String(m.text||'').replace(/\s+/g,' ').slice(0,60)) : 'Нет сообщений';
+  function drawList(){
+    const seen = chatSeenMap(slug);
+    let ts = chatThreads(slug, msgs);
+    const unreadTotal = ts.reduce((a,t)=> a+chatUnreadIn(t,seen,me), 0);
+    ts = ts.filter(t=> filter==='unread' ? chatUnreadIn(t,seen,me)>0 : filter==='favs' ? favs.includes(t.id) : filter==='groups' ? t.group : true)
+           .filter(t=> !query || (t.title+' '+(t.last?t.last.text:'')).toLowerCase().includes(query));
+    ts.sort((a,b)=> (favs.includes(b.id)-favs.includes(a.id)) || ((b.last?b.last.ts:0)-(a.last?a.last.ts:0)));
+    cEl.innerHTML = `<div class="dh-h"><h3>Чаты</h3></div>
+      <input type="search" class="dh-search" id="dhSearch" placeholder="Поиск чатов" value="${esc(query)}" autocomplete="off"/>
+      <div class="dh-filters">${[['all','Все'],['unread','Непрочитанные'+(unreadTotal?' '+unreadTotal:'')],['favs','Избранные'],['groups','Группы']].map(([k,l])=>`<button type="button" data-f="${k}" class="${filter===k?'on':''}">${l}</button>`).join('')}</div>
+      <div class="dh-threads">${ts.map(t=>{ const n = chatUnreadIn(t,seen,me); return `<div class="dh-thread" data-id="${esc(t.id)}">
+        <span class="dh-av ${t.group?'grp':''}">${esc(t.group?'Г':(t.title||'?').replace(/^РМ |^Руководитель /,'').slice(0,1))}</span>
+        <div class="dh-tb"><div class="dh-tr"><b>${esc(t.title)}</b><time>${esc(fmtT(t.last&&t.last.ts))}</time></div>
+          <div class="dh-tr"><span class="dh-sn">${esc(snippet(t.last))}</span>${n?`<span class="dh-badge">${n}</span>`:''}</div></div>
+        <button type="button" class="dh-star ${favs.includes(t.id)?'on':''}" data-star="${esc(t.id)}" title="Избранное">${favs.includes(t.id)?'★':'☆'}</button></div>`; }).join('') || '<div class="empty">Чатов нет.</div>'}</div>`;
+    cEl.querySelector('#dhSearch').oninput = e=>{ query = e.target.value.trim().toLowerCase(); drawList(); const s=cEl.querySelector('#dhSearch'); s.focus(); s.setSelectionRange(s.value.length,s.value.length); };
+    cEl.querySelectorAll('[data-f]').forEach(b=> b.onclick = ()=>{ filter = b.dataset.f; drawList(); });
+    cEl.querySelectorAll('.dh-thread').forEach(r=> r.onclick = e=>{ if(e.target.closest('[data-star]')) return; openId = r.dataset.id; drawThread(); });
+    cEl.querySelectorAll('[data-star]').forEach(b=> b.onclick = e=>{
+      e.stopPropagation(); const id = b.dataset.star;
+      favs = favs.includes(id) ? favs.filter(x=>x!==id) : [...favs, id];
+      col.doc(prefId).set({ direction:slug, collection:'chatprefs', owner:me, favs, ts:Date.now() }).catch(()=>{});
+      drawList();
+    });
   }
-  send.onclick = submit; input.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); submit(); } });
+  function drawThread(){
+    const t = chatThreads(slug, msgs).find(x=> x.id===openId);
+    if(!t){ openId = null; drawList(); return; }
+    const canWrite = !t.observer;
+    cEl.innerHTML = `<div class="dh-h dh-th"><button type="button" class="dh-back" id="dhBack">←</button><h3>${esc(t.title)}</h3>${t.observer?'<span class="dh-obs">наблюдаете</span>':''}</div>
+      <div class="dh-msgs" id="dhMsgs">${t.msgs.map(m=>{
+        const ask = (m.ask && !m.answer && me==='kairat' && canWrite)
+          ? `<div class="dh-ask"><button class="btn" data-ans="yes" data-id="${esc(m.id)}">Согласовать</button><button class="btn ghost" data-ans="no" data-id="${esc(m.id)}">Не сейчас</button></div>`
+          : (m.ask && m.answer ? `<div class="dh-ans">${m.answer==='yes'?'✓ Согласовано':'Отложено'}</div>` : '');
+        return `<div class="dh-m ${m.authorKey===me?'me':''}"><div class="dh-mh"><b>${esc(m.author||'')}</b> <time>${esc(m.ts?new Date(m.ts).toLocaleString('ru-RU',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'')}</time></div><div class="dh-mt">${esc(m.text||'')}</div>${ask}</div>`; }).join('') || '<div class="empty">Сообщений пока нет.</div>'}</div>
+      ${canWrite?`<div class="dh-send"><input type="text" id="dhInput" placeholder="Сообщение…"/><button class="btn" id="dhSend">Отправить</button></div>`:''}`;
+    const mEl = cEl.querySelector('#dhMsgs'); mEl.scrollTop = mEl.scrollHeight;
+    chatMarkSeen(slug, t.id, t.last ? t.last.ts : Date.now());
+    cEl.querySelector('#dhBack').onclick = ()=>{ openId = null; drawList(); };
+    mEl.addEventListener('click', async e=>{
+      const b = e.target.closest('[data-ans]'); if(!b) return; b.disabled = true; const ans = b.dataset.ans;
+      try{
+        await col.doc(b.dataset.id).update({ answer: ans, answeredAt: Date.now() });
+        const base = { direction:slug, chat:true, thread:t.id, author: await meName(), authorKey:me, text: ans==='yes' ? 'Согласовано, начинай.' : 'Пока не начинай.', ts: Date.now() };
+        await col.add(t.members ? { ...base, participants:t.members } : base);
+      }catch(err){ b.disabled = false; }
+    });
+    if(canWrite){
+      const input = cEl.querySelector('#dhInput'), send = cEl.querySelector('#dhSend');
+      async function submit(){
+        const text = input.value.trim(); if(!text) return;
+        send.disabled = true; input.value = '';
+        try{
+          const base = { direction:slug, chat:true, thread:t.id, author: await meName(), authorKey:me, text, ts: Date.now() };
+          await col.add(t.members ? { ...base, participants:t.members } : base);
+        }catch(err){ input.value = text; }
+        send.disabled = false;
+      }
+      send.onclick = submit; input.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); submit(); } });
+    }
+  }
+  function redraw(){ if(openId) drawThread(); else drawList(); }
+  unsubs['dh-chat'] = col.where('direction','==',slug).orderBy('ts','desc').limit(300).onSnapshot(snap=>{
+    msgs = snap.docs.map(d=>d.data()).filter(m=> m.chat);
+    const a = document.activeElement; const typing = a && a.id==='dhInput' && a.value;
+    if(!typing) redraw(); else { refreshUnreadBadges(); }
+  }, err=>{ cEl.innerHTML = `<div class="empty">Нет доступа (${esc(err.code||'')}).</div>`; });
+  unsubs['dh-prefs'] = db.collection('chatprefs').where('direction','==',slug).onSnapshot(snap=>{
+    const mine = snap.docs.map(d=>d.data()).find(d=> d.owner===me);
+    favs = (mine && mine.favs) || []; if(!openId) drawList();
+  }, ()=>{});
 }
 
 function render(){
