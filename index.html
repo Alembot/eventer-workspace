@@ -82,7 +82,7 @@ button{font:inherit;cursor:pointer}
 .mode-row:hover{background:var(--rail-active)}
 .mode-row.sel{background:color-mix(in srgb, var(--accent) 22%, transparent)}
 .mode-row.sel div:first-child{color:var(--accent)}
-.main{flex:1;min-width:0;padding:28px 36px 60px;max-width:1200px}
+.main{flex:1;min-width:0;padding:28px 36px 60px;max-width:2000px}
 .header{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:18px;flex-wrap:wrap}
 .header .eyebrow{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--fg-muted);margin-bottom:4px}
 .tabs{display:flex;gap:4px;border-bottom:1px solid var(--border);margin-bottom:20px;flex-wrap:wrap}
@@ -270,11 +270,18 @@ body.modal-open{position:fixed;left:0;right:0;overflow:hidden}
 .mention-item .md{color:var(--fg-muted);font-size:11.5px}
 
 .rail-item .rail-n{margin-left:auto;background:var(--bad);color:#fff;border-radius:999px;min-width:18px;height:18px;font-size:11px;font-weight:600;display:inline-flex;align-items:center;justify-content:center;padding:0 5px}
-.dh-grid{display:grid;grid-template-columns:minmax(0,7fr) minmax(0,3fr);gap:16px;align-items:start}
+.dh-grid{display:grid;grid-template-columns:minmax(0,7fr) minmax(320px,3fr);gap:18px;align-items:start}
 @media(max-width:900px){.dh-grid{grid-template-columns:minmax(0,1fr)}}
 .dh-h{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px}.dh-h h3{margin:0;font-size:15px}.dh-all,.dh-more{font-size:12.5px;color:var(--fg-muted)}
 .dh-gh{font-size:11.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--fg-muted);margin:14px 0 6px}
-.dh-task{display:flex;gap:10px;align-items:baseline;padding:8px 2px;border-top:1px solid var(--border);color:inherit;text-decoration:none;font-size:13.5px}
+.dh-task{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;padding:9px 12px;border-top:1px solid var(--border);cursor:pointer;font-size:13.5px}
+.dh-pd{width:9px;height:9px;border-radius:50%;flex:none}
+.dh-tt{flex:1 1 260px;min-width:0}
+.dh-mk{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-left:auto}
+.dh-chip{font-size:11.5px;border:1px solid var(--border);border-radius:99px;padding:1px 8px;color:var(--fg-muted);white-space:nowrap}
+.dh-ck{font-size:12px;color:var(--fg-muted);white-space:nowrap}
+.dh-due{white-space:nowrap}
+
 .dh-no{color:var(--fg-muted);flex:none;min-width:38px;font-size:12px}.dh-tt{flex:1;min-width:0}.dh-pr{flex:none;font-size:11.5px;color:var(--fg-muted);border:1px solid var(--border);border-radius:99px;padding:1px 8px}.dh-due{flex:none;font-size:12px;color:var(--fg-muted)}.dh-due.od{color:var(--bad)}
 .dh-msgs{max-height:52vh;overflow:auto;display:flex;flex-direction:column;gap:8px;margin-bottom:10px}
 .dh-m{background:var(--surface-2);border-radius:12px;padding:8px 10px;font-size:13px}.dh-m.me{background:transparent;border:1px solid var(--border)}
@@ -1998,23 +2005,49 @@ function renderDirHome(panel, slug){
       <div class="dh-side"><div class="card dh-chat" id="dhChat"><div class="empty">Загрузка…</div></div></div>
     </div>`;
   if(!db){ panel.querySelector('#dhTasks').innerHTML = '<div class="empty">База данных недоступна.</div>'; return; }
-  // --- задачи ---
+  // --- задачи: цветные блоки по разделам (макет Кайрата 20.11.2026) ---
   const dayStart = dayBounds(0);
   const tEl = panel.querySelector('#dhTasks');
-  unsubs['dh-tasks'] = db.collection('tasks').where('direction','==',slug).orderBy('ts','desc').limit(300).onSnapshot(snap=>{
-    const all = snap.docs.map(d=>d.data()).filter(t=> !t.parentId && t.status!=='done' && t.status!=='postponed' && !t.archived);
-    const by = (a,b)=> ((a.due||9e15)-(b.due||9e15)) || ((a.no||0)-(b.no||0));
-    const groups = [
-      ['Ждут согласования', all.filter(t=> t.status==='approval').sort(by)],
-      ['В работе', all.filter(t=> t.status==='in_progress').sort(by)],
-      ['К выполнению', all.filter(t=> t.status!=='approval' && t.status!=='in_progress').sort(by)]
-    ];
-    const row = t=>{
-      const title = (typeof splitRecordText==='function' ? splitRecordText(t.text).title : '') || t.title || t.text || 'Без названия';
-      const od = t.due && t.due < dayStart;
-      return `<a class="dh-task" href="#${slug}/tasks"><span class="dh-no">${t.no?'№'+esc(t.no):''}</span><span class="dh-tt">${esc(title)}</span>${t.project?`<span class="dh-pr">${esc(t.project)}</span>`:''}${t.due?`<span class="dh-due ${od?'od':''}">${esc(new Date(t.due).toLocaleDateString('ru-RU',{day:'numeric',month:'short'}))}</span>`:''}</a>`;
-    };
-    tEl.innerHTML = groups.filter(g=>g[1].length).map(([name,list])=>`<div class="dh-grp"><div class="dh-gh">${name} · ${list.length}</div>${list.slice(0,10).map(row).join('')}${list.length>10?`<a class="dh-more" href="#${slug}/tasks">ещё ${list.length-10}</a>`:''}</div>`).join('') || '<div class="empty">Открытых задач нет.</div>';
+  const colT = db.collection('tasks');
+  const SEC = {'1':'#7F77DD','2':'#378ADD','3':'#1D9E75','4':'#BA7517','5':'#888780'};
+  const secOpen = new Set(['1','2']);
+  let tdocs = [];
+  function drawTasks(){
+    const open = tdocs.filter(d=>{ const t=d.data; return !t.parentId && t.status!=='done' && t.status!=='postponed' && !t.archived; });
+    const bySec = {};
+    open.forEach(d=>{ const m = /^\s*(\d+)\./.exec(d.data.section||''); const k = m ? m[1] : '0'; (bySec[k] = bySec[k]||[]).push(d); });
+    const prio = {high:0, medium:1, low:2}, dot = {high:'#d64545', medium:'#e0a32e', low:'#9a9a94'};
+    const keys = Object.keys(bySec).sort((x,y)=> (x==='0')-(y==='0') || x-y);
+    tEl.innerHTML = keys.map(k=>{
+      const list = bySec[k].slice().sort((x,y)=> (prio[x.data.priority||'medium']-prio[y.data.priority||'medium']) || ((x.data.no||0)-(y.data.no||0)));
+      const color = SEC[k] || '#888780';
+      const title = k==='0' ? 'Без раздела' : (list[0].data.section||'').replace(/^\s*\d+\.\s*/,'');
+      let done = 0, all = 0;
+      list.forEach(d=> (Array.isArray(d.data.checklist)?d.data.checklist:[]).forEach(c=>{ all++; if(c.done) done++; }));
+      const pct = all ? Math.round(done*100/all) : 0, isOpen = secOpen.has(k);
+      return `<div style="border:1px solid ${color};border-radius:12px;margin-bottom:12px;overflow:hidden">
+        <div class="dh-sh" data-k="${k}" style="background:${color}24;padding:10px 12px;display:flex;align-items:center;gap:10px;cursor:pointer">
+          <span style="width:26px;height:26px;border-radius:6px;background:${color};color:#fff;display:inline-flex;align-items:center;justify-content:center;font-weight:600;font-size:13px;flex:none">${k==='0'?'·':k}</span>
+          <div style="flex:1;min-width:0"><div style="font-weight:600;font-size:14px">${esc(title)}</div>
+            <div style="font-size:12px;color:var(--fg-muted)">${list.length} задач · ${pct}%</div>
+            <div style="height:4px;background:${color}33;border-radius:2px;margin-top:5px"><div style="height:4px;width:${pct}%;background:${color};border-radius:2px"></div></div></div>
+          <span style="flex:none;color:var(--fg-muted)">${isOpen?'▾':'▸'}</span></div>
+        ${isOpen ? list.map(d=>{ const t=d.data, cl=Array.isArray(t.checklist)?t.checklist:[], dn=cl.filter(c=>c.done).length;
+          const ttl = (typeof splitRecordText==='function' ? splitRecordText(t.text).title : '') || t.title || t.text || 'Без названия';
+          const od = t.due && t.due < dayStart;
+          return `<div class="dh-task" data-id="${esc(d.id)}">
+            <span class="dh-pd" style="background:${dot[t.priority||'medium']}"></span>
+            <span class="dh-no">${t.no?'№'+esc(t.no):''}</span>
+            <span class="dh-tt">${esc(ttl)}</span>
+            <span class="dh-mk">${t.status==='in_progress'?'<span class="dh-chip">в работе</span>':''}${t.status==='approval'?'<span class="dh-chip">ждёт согласования</span>':''}${t.project?`<span class="dh-chip">${esc(t.project)}</span>`:''}${cl.length?`<span class="dh-ck">${dn}/${cl.length}</span>`:''}${t.due?`<span class="dh-due ${od?'od':''}">${esc(new Date(t.due).toLocaleDateString('ru-RU',{day:'numeric',month:'short'}))}</span>`:''}</span>
+          </div>`; }).join('') : ''}
+      </div>`;
+    }).join('') || '<div class="empty">Открытых задач нет.</div>';
+    tEl.querySelectorAll('.dh-sh').forEach(h=> h.onclick = ()=>{ const k=h.dataset.k; if(secOpen.has(k)) secOpen.delete(k); else secOpen.add(k); drawTasks(); });
+    tEl.querySelectorAll('.dh-task').forEach(r=> r.onclick = ()=>{ const id=r.dataset.id; openTaskModal(colT, id, ()=>tdocs.find(d=>d.id===id)); });
+  }
+  unsubs['dh-tasks'] = colT.where('direction','==',slug).orderBy('ts','desc').limit(300).onSnapshot(snap=>{
+    tdocs = snap.docs.map(d=>({id:d.id, data:d.data()})); drawTasks();
   }, err=>{ tEl.innerHTML = `<div class="empty">Нет доступа (${esc(err.code||'')}).</div>`; });
   // --- чаты ---
   const cEl = panel.querySelector('#dhChat');
@@ -2398,7 +2431,7 @@ function renderTasks(panel, dirSlug){
           <span style="flex:none;color:var(--fg-muted)">${isOpen?'▾':'▸'}</span>
         </div>
         ${isOpen ? list.map(d=>{ const v=d.data; const cl=Array.isArray(v.checklist)?v.checklist:[]; const dn=cl.filter(c=>c.done).length;
-          return `<div class="sec-task" data-id="${esc(d.id)}" style="display:flex;align-items:baseline;gap:10px;padding:8px 12px;border-top:1px solid var(--border);cursor:pointer;font-size:13.5px">
+          return `<div class="sec-task" data-id="${esc(d.id)}" style="display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 10px;padding:8px 12px;border-top:1px solid var(--border);cursor:pointer;font-size:13.5px">
             <span style="width:9px;height:9px;border-radius:50%;background:${dot[v.priority||'medium']};flex:none;align-self:center"></span>
             <span style="color:var(--fg-muted);font-size:12px;min-width:34px;flex:none">${v.no?'№'+esc(v.no):''}</span>
             <span style="flex:1;min-width:0">${esc(v.text)}</span>
@@ -2427,7 +2460,7 @@ function renderTasks(panel, dirSlug){
     docs = docs.slice().sort((x,y)=>{ const dx=x.data.due||Infinity, dy=y.data.due||Infinity; if(dx!==dy) return dx<dy?-1:1; return (x.data.no||0)-(y.data.no||0); });
     if(!docs.length){ listEl.innerHTML = '<div class="empty">Нет задач по этому фильтру.</div>'; return; }
     // Афиша → проект «Афиша База данных»: задачи пятью цветными блоками по разделам (макет Кайрата 20.11.2026, задача №406)
-    if(dirSlug==='afisha' && projectFilter==='Афиша База данных'){ renderSectionBlocks(docs); return; }
+    if(dirSlug==='afisha'){ renderSectionBlocks(docs); return; }
     listEl.innerHTML = docs.map(({id,data:v})=>{
       const checklist = Array.isArray(v.checklist) ? v.checklist : [];
       const hasChecklist = checklist.length>0;
