@@ -285,7 +285,7 @@ body.modal-open{position:fixed;left:0;right:0;overflow:hidden}
 
 .dh-no{color:var(--fg-muted);flex:none;min-width:38px;font-size:12px}.dh-tt{flex:1;min-width:0}.dh-pr{flex:none;font-size:11.5px;color:var(--fg-muted);border:1px solid var(--border);border-radius:99px;padding:1px 8px}.dh-due{flex:none;font-size:12px;color:var(--fg-muted)}.dh-due.od{color:var(--bad)}
 .dh-msgs{max-height:52vh;overflow:auto;display:flex;flex-direction:column;gap:8px;margin-bottom:10px}
-.dh-m{background:var(--surface-2);border-radius:12px;padding:8px 10px;font-size:13px}.dh-m.me{background:transparent;border:1px solid var(--border)}
+.dh-m{background:var(--surface-2);border-radius:12px;padding:7px 10px;font-size:13px;max-width:82%;align-self:flex-start}.dh-m.me{background:#d9f2d0;color:#1a1a1a;align-self:flex-end}.dh-m.me .dh-tick{color:#6b7a66}.dh-m.me .dh-tick.rd{color:#2f80ed}.dh-tm{font-size:10.5px;color:var(--fg-muted);text-align:right;margin-top:2px}.dh-m.me .dh-tm{color:#5f6b5b}
 .dh-mh{font-size:11.5px;color:var(--fg-muted);margin-bottom:3px}.dh-mh b{color:var(--fg)}.dh-mt{white-space:pre-wrap;word-break:break-word}
 .dh-ask{display:flex;gap:8px;margin-top:8px}.dh-ans{margin-top:6px;font-size:12px;color:var(--fg-muted)}
 .dh-to{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}.dh-to button{font:inherit;font-size:12px;border:1px solid var(--border);background:transparent;color:var(--fg);border-radius:99px;padding:4px 10px;cursor:pointer}.dh-to button.on{background:var(--fg);color:var(--bg)}
@@ -2094,7 +2094,9 @@ function renderDirHome(panel, slug){
           ? `<div class="dh-ask"><button class="btn" data-ans="yes" data-id="${esc(m.id)}">Согласовать</button><button class="btn ghost" data-ans="no" data-id="${esc(m.id)}">Не сейчас</button></div>`
           : (m.ask && m.answer ? `<div class="dh-ans">${m.answer==='yes'?'✓ Согласовано':'Отложено'}</div>` : '');
         const tick = m.authorKey===me ? ` <span class="dh-tick ${m.readAt?'rd':''}" title="${m.readAt?'Прочитано':'Отправлено'}">${m.readAt?'✓✓':'✓'}</span>` : '';
-        return `<div class="dh-m ${m.authorKey===me?'me':''}"><div class="dh-mh"><b>${esc(m.author||'')}</b> <time>${esc(m.ts?new Date(m.ts).toLocaleString('ru-RU',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'')}</time>${tick}</div><div class="dh-mt">${esc(m.text||'')}</div>${ask}</div>`; }).join('') || '<div class="empty">Сообщений пока нет.</div>'}</div>
+        const tm = m.ts?new Date(m.ts).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'}):'';
+        const nm = (t.group && m.authorKey!==me) ? `<div class="dh-mh"><b>${esc(m.author||'')}</b></div>` : '';
+        return `<div class="dh-m ${m.authorKey===me?'me':''}">${nm}<div class="dh-mt">${esc(m.text||'')}</div><div class="dh-tm">${tm}${tick}</div></div>${ask}</div>`; }).join('') || '<div class="empty">Сообщений пока нет.</div>'}</div>
       ${canWrite?`<div class="dh-send"><input type="text" id="dhInput" placeholder="Сообщение…"/><button class="btn" id="dhSend">Отправить</button></div>`:''}`;
     const mEl = cEl.querySelector('#dhMsgs'); mEl.scrollTop = mEl.scrollHeight;
     chatMarkSeen(slug, t.id, t.last ? t.last.ts : Date.now());
