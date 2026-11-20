@@ -270,6 +270,7 @@ body.modal-open{position:fixed;left:0;right:0;overflow:hidden}
 .mention-item .md{color:var(--fg-muted);font-size:11.5px}
 
 .rail-item .rail-n{margin-left:auto;background:var(--bad);color:#fff;border-radius:999px;min-width:18px;height:18px;font-size:11px;font-weight:600;display:inline-flex;align-items:center;justify-content:center;padding:0 5px}
+.dh-tick{font-size:11px;color:var(--fg-muted);margin-left:4px}.dh-tick.rd{color:#2f80ed}
 .dh-grid{display:grid;grid-template-columns:minmax(0,7fr) minmax(320px,3fr);gap:18px;align-items:start}
 @media(max-width:900px){.dh-grid{grid-template-columns:minmax(0,1fr)}}
 .dh-h{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px}.dh-h h3{margin:0;font-size:15px}.dh-all,.dh-more{font-size:12.5px;color:var(--fg-muted)}
@@ -2001,7 +2002,7 @@ function renderDirHome(panel, slug){
   const me = chatMyKey();
   panel.innerHTML = `
     <div class="dh-grid">
-      <div class="dh-main"><div class="card"><div class="dh-h"><h3>Задачи</h3><a href="#${slug}/tasks" class="dh-all">Все задачи</a></div><div id="dhTasks"><div class="empty">Загрузка…</div></div></div></div>
+      <div class="dh-main"><div class="card"><div class="dh-h"><h3>Задачи</h3><a href="#${slug}/tasks" class="dh-all">Фильтры и добавить задачу</a></div><div id="dhTasks"><div class="empty">Загрузка…</div></div></div></div>
       <div class="dh-side"><div class="card dh-chat" id="dhChat"><div class="empty">Загрузка…</div></div></div>
     </div>`;
   if(!db){ panel.querySelector('#dhTasks').innerHTML = '<div class="empty">База данных недоступна.</div>'; return; }
@@ -2054,6 +2055,7 @@ function renderDirHome(panel, slug){
   const col = db.collection('messages');
   const prefId = 'chatprefs_'+me.replace(/[^a-z0-9]/gi,'_')+'_'+slug;
   let msgs = [], favs = [], filter = 'all', query = '', openId = null;
+  const readSent = new Set();
   const meName = async()=> (user && (await user.me())?.name) || (me==='kairat'?'Кайрат':'Сотрудник');
   const fmtT = ts=>{ if(!ts) return ''; const d=new Date(ts), n=new Date(); return d.toDateString()===n.toDateString() ? d.toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'}) : d.toLocaleDateString('ru-RU',{day:'numeric',month:'short'}); };
   const snippet = m=> m ? ((m.authorKey===me?'Вы: ':'')+String(m.text||'').replace(/\s+/g,' ').slice(0,60)) : 'Нет сообщений';
@@ -2091,10 +2093,12 @@ function renderDirHome(panel, slug){
         const ask = (m.ask && !m.answer && me==='kairat' && canWrite)
           ? `<div class="dh-ask"><button class="btn" data-ans="yes" data-id="${esc(m.id)}">Согласовать</button><button class="btn ghost" data-ans="no" data-id="${esc(m.id)}">Не сейчас</button></div>`
           : (m.ask && m.answer ? `<div class="dh-ans">${m.answer==='yes'?'✓ Согласовано':'Отложено'}</div>` : '');
-        return `<div class="dh-m ${m.authorKey===me?'me':''}"><div class="dh-mh"><b>${esc(m.author||'')}</b> <time>${esc(m.ts?new Date(m.ts).toLocaleString('ru-RU',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'')}</time></div><div class="dh-mt">${esc(m.text||'')}</div>${ask}</div>`; }).join('') || '<div class="empty">Сообщений пока нет.</div>'}</div>
+        const tick = m.authorKey===me ? ` <span class="dh-tick ${m.readAt?'rd':''}" title="${m.readAt?'Прочитано':'Отправлено'}">${m.readAt?'✓✓':'✓'}</span>` : '';
+        return `<div class="dh-m ${m.authorKey===me?'me':''}"><div class="dh-mh"><b>${esc(m.author||'')}</b> <time>${esc(m.ts?new Date(m.ts).toLocaleString('ru-RU',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'')}</time>${tick}</div><div class="dh-mt">${esc(m.text||'')}</div>${ask}</div>`; }).join('') || '<div class="empty">Сообщений пока нет.</div>'}</div>
       ${canWrite?`<div class="dh-send"><input type="text" id="dhInput" placeholder="Сообщение…"/><button class="btn" id="dhSend">Отправить</button></div>`:''}`;
     const mEl = cEl.querySelector('#dhMsgs'); mEl.scrollTop = mEl.scrollHeight;
     chatMarkSeen(slug, t.id, t.last ? t.last.ts : Date.now());
+    if(!t.observer) t.msgs.filter(m=> m.authorKey!==me && !m.readAt && m.id && !readSent.has(m.id)).forEach(m=>{ readSent.add(m.id); col.doc(m.id).update({ readAt: Date.now() }).catch(()=>{}); });
     cEl.querySelector('#dhBack').onclick = ()=>{ openId = null; drawList(); };
     mEl.addEventListener('click', async e=>{
       const b = e.target.closest('[data-ans]'); if(!b) return; b.disabled = true; const ans = b.dataset.ans;
@@ -2120,7 +2124,7 @@ function renderDirHome(panel, slug){
   }
   function redraw(){ if(openId) drawThread(); else drawList(); }
   unsubs['dh-chat'] = col.where('direction','==',slug).orderBy('ts','desc').limit(300).onSnapshot(snap=>{
-    msgs = snap.docs.map(d=>d.data()).filter(m=> m.chat);
+    msgs = snap.docs.map(d=>({ ...d.data(), id:d.id })).filter(m=> m.chat);
     const a = document.activeElement; const typing = a && a.id==='dhInput' && a.value;
     if(!typing) redraw(); else { refreshUnreadBadges(); }
   }, err=>{ cEl.innerHTML = `<div class="empty">Нет доступа (${esc(err.code||'')}).</div>`; });
@@ -2170,8 +2174,9 @@ function render(){
     return;
   }
   const dir = state.dir==='workspace' ? {slug:'workspace', name:'Workspace'} : DIRECTIONS.find(d=>d.slug===state.dir);
-  const tabs = tabsForDir(dir.slug);
-  if(!tabs.find(t=>t[0]===state.tab)) state.tab = tabs[0][0];
+  const tabsAll = tabsForDir(dir.slug);
+  const tabs = DIR_HOME_SLUGS.includes(dir.slug) ? tabsAll.filter(t=>t[0]!=='tasks') : tabsAll;
+  if(!tabsAll.find(t=>t[0]===state.tab)) state.tab = tabs[0][0];
   const tabTarget = tabs.find(t=>t[0]===state.tab)?.[2];
   if(tabTarget){ location.replace(tabTarget); return; }
   const main = document.getElementById('main');
