@@ -268,6 +268,20 @@ body.modal-open{position:fixed;left:0;right:0;overflow:hidden}
 .mention-item:hover,.mention-item.hi{background:var(--surface-2)}
 .mention-item .mn{font-weight:600}
 .mention-item .md{color:var(--fg-muted);font-size:11.5px}
+
+.rail-item .rail-n{margin-left:auto;background:var(--bad);color:#fff;border-radius:999px;min-width:18px;height:18px;font-size:11px;font-weight:600;display:inline-flex;align-items:center;justify-content:center;padding:0 5px}
+.dh-grid{display:grid;grid-template-columns:minmax(0,7fr) minmax(0,3fr);gap:16px;align-items:start}
+@media(max-width:900px){.dh-grid{grid-template-columns:minmax(0,1fr)}}
+.dh-h{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px}.dh-h h3{margin:0;font-size:15px}.dh-all,.dh-more{font-size:12.5px;color:var(--fg-muted)}
+.dh-gh{font-size:11.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--fg-muted);margin:14px 0 6px}
+.dh-task{display:flex;gap:10px;align-items:baseline;padding:8px 2px;border-top:1px solid var(--border);color:inherit;text-decoration:none;font-size:13.5px}
+.dh-no{color:var(--fg-muted);flex:none;min-width:38px;font-size:12px}.dh-tt{flex:1;min-width:0}.dh-pr{flex:none;font-size:11.5px;color:var(--fg-muted);border:1px solid var(--border);border-radius:99px;padding:1px 8px}.dh-due{flex:none;font-size:12px;color:var(--fg-muted)}.dh-due.od{color:var(--bad)}
+.dh-msgs{max-height:52vh;overflow:auto;display:flex;flex-direction:column;gap:8px;margin-bottom:10px}
+.dh-m{background:var(--surface-2);border-radius:12px;padding:8px 10px;font-size:13px}.dh-m.me{background:transparent;border:1px solid var(--border)}
+.dh-mh{font-size:11.5px;color:var(--fg-muted);margin-bottom:3px}.dh-mh b{color:var(--fg)}.dh-mt{white-space:pre-wrap;word-break:break-word}
+.dh-ask{display:flex;gap:8px;margin-top:8px}.dh-ans{margin-top:6px;font-size:12px;color:var(--fg-muted)}
+.dh-to{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}.dh-to button{font:inherit;font-size:12px;border:1px solid var(--border);background:transparent;color:var(--fg);border-radius:99px;padding:4px 10px;cursor:pointer}.dh-to button.on{background:var(--fg);color:var(--bg)}
+.dh-send{display:flex;gap:8px}.dh-send input{flex:1;min-width:0}
 /* Unread-message dot on a direction's nav entry (sidebar rail and the mobile sheet) */
 .rail-item.has-msg{position:relative}
 /* Left-menu unread dot hidden; unread message state is preserved. */
@@ -548,6 +562,13 @@ function refreshUnreadBadges(){
   });
   document.querySelectorAll('.sheet-chip[data-dir]').forEach(el=>{
     el.classList.toggle('has-msg', unreadSlugs.has(el.dataset.dir));
+  });
+  if(typeof DIR_HOME_SLUGS!=='undefined') document.querySelectorAll('.rail-item[data-dir]').forEach(el=>{
+    const slug = el.dataset.dir; if(!DIR_HOME_SLUGS.includes(slug)) return;
+    const n = chatUnread(slug); let b = el.querySelector('.rail-n');
+    if(!n){ if(b) b.remove(); return; }
+    if(!b){ b = document.createElement('span'); b.className = 'rail-n'; el.appendChild(b); }
+    b.textContent = n>99?'99+':String(n);
   });
   const homeCard = document.getElementById('homeMsgCard');
   if(homeCard) renderHomeMsgCard(homeCard);
@@ -859,7 +880,7 @@ function parseRoute(){
     const h = (location.hash||'').replace('#','');
     const [dir, tab] = h.split('/');
     state.dir = empDir;
-    state.tab = (dir===empDir && tab) ? tab : 'tasks';
+    state.tab = (dir===empDir && tab) ? tab : (DIR_HOME_SLUGS.includes(empDir)?'home':'tasks');
     return;
   }
   const h = (location.hash||'').replace('#','');
@@ -875,7 +896,7 @@ function parseRoute(){
   // а не в Академию (решение Кайрата 07.11.2026: приложение всегда открывается с Главной)
   if(!DIRECTIONS.find(d=>d.slug===dir)){ state.dir = 'home'; state.tab = null; return; }
   state.dir = dir;
-  state.tab = tab || 'tasks';
+  state.tab = tab || (DIR_HOME_SLUGS.includes(dir)?'home':'tasks');
 }
 window.addEventListener('hashchange', ()=>{ parseRoute(); render(); });
 
@@ -919,7 +940,7 @@ function renderRail(){
   ul.innerHTML = html;
   ul.querySelectorAll('.rail-item').forEach(el=>{
     el.addEventListener('click', ()=>{
-      location.hash = el.dataset.dir==='team' ? '#team' : el.dataset.dir==='processes' ? '#processes/requests' : '#'+el.dataset.dir+'/tasks';
+      location.hash = el.dataset.dir==='team' ? '#team' : el.dataset.dir==='processes' ? '#processes/requests' : '#'+el.dataset.dir+'/'+(DIR_HOME_SLUGS.includes(el.dataset.dir)?'home':'tasks');
     });
   });
   const brand = document.getElementById('railBrand');
@@ -1031,7 +1052,8 @@ function tabsForDir(slug){
   ];
   if(slug==='workspace') return [['decisions','Решения'],['context','Контекст']];
   const base = [['tasks','Задачи'],['apps','Приложения'],['decisions','Решения'],['context','Контекст']];
-  const tabs = base.slice(0,1);
+  const tabs = DIR_HOME_SLUGS.includes(slug) ? [['home','Главная']] : [];
+  tabs.push(base[0]);
   if(DIRS_WITH_FINANCE_AND_MESSAGES.includes(slug)) tabs.push(['finance','Финансы']);
   if(DIRS_WITH_MARKETING.includes(slug)) tabs.push(['marketing','Маркетинг и продажи']);
   if(slug==='finance') tabs.push(['budgets','Бюджеты']);
@@ -1899,6 +1921,107 @@ function renderProcesses(panel){
   body.querySelector('#procCreate').onclick = openProcessCreateMenu;
 }
 
+// ---------- «Главная» направления (шаблон, 20.11.2026): слева задачи, справа чат направления ----------
+// Пилот — Афиша; остальные направления подключаются добавлением slug в DIR_HOME_SLUGS.
+// Правила переписки (решение Кайрата 20.11.2026): РМ направления пишет только Гл менеджеру;
+// РМ направления и руководителю службы пишут руководитель направления, Гл менеджер и Кайрат.
+const DIR_HOME_SLUGS = ['afisha'];
+const CHAT_TARGETS = [
+  {k:'general', label:'Гл менеджер'}, {k:'kairat', label:'Кайрат'}, {k:'manager', label:'РМ направления'},
+  {k:'head', label:'Руководитель направления'}, {k:'service', label:'Руководитель службы'}
+];
+const CHAT_ALLOWED = {
+  kairat:['general','manager','head','service'], general:['kairat','manager','head','service'],
+  head:['general','manager','service','kairat'], service:['general'], manager:['general']
+};
+function chatSenderRole(){
+  if(isAdmin()) return 'kairat';
+  const r = currentProfile && currentProfile.role;
+  return r==='direction_head' ? 'head' : r==='service_head' ? 'service' : 'manager';
+}
+function chatSeenKey(slug){ return 'eventerChatSeen_'+slug; }
+function chatUnread(slug){
+  const seen = parseInt(localStorage.getItem(chatSeenKey(slug))||'0',10) || 0;
+  const mine = chatSenderRole();
+  return lsRead('messages').filter(m=> m.chat && m.direction===slug && (m.ts||0)>seen && m.authorRole!==mine && (!m.to || !m.to.length || (Array.isArray(m.to)?m.to:[m.to]).some(t=> t===mine || t==='all'))).length;
+}
+function chatMarkSeen(slug){
+  const ts = lsRead('messages').filter(m=> m.chat && m.direction===slug).reduce((a,m)=> Math.max(a,m.ts||0), Date.now());
+  localStorage.setItem(chatSeenKey(slug), String(ts));
+  refreshUnreadBadges();
+}
+function renderDirHome(panel, slug){
+  const esc = v=> String(v??'').replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const myRole = chatSenderRole();
+  const allowed = CHAT_ALLOWED[myRole] || ['general'];
+  const tLabel = k=> (CHAT_TARGETS.find(t=>t.k===k)||{label:k}).label;
+  panel.innerHTML = `
+    <div class="dh-grid">
+      <div class="dh-main"><div class="card"><div class="dh-h"><h3>Задачи</h3><a href="#${slug}/tasks" class="dh-all">Все задачи</a></div><div id="dhTasks"><div class="empty">Загрузка…</div></div></div></div>
+      <div class="dh-side"><div class="card dh-chat">
+        <div class="dh-h"><h3>Чат направления</h3></div>
+        <div class="dh-msgs" id="dhMsgs"><div class="empty">Загрузка…</div></div>
+        <div class="dh-to" id="dhTo">${allowed.map((k,i)=>`<button type="button" data-k="${k}" class="${i===0?'on':''}">${esc(tLabel(k))}</button>`).join('')}</div>
+        <div class="dh-send"><input type="text" id="dhInput" placeholder="Сообщение…"/><button class="btn" id="dhSend">Отправить</button></div>
+      </div></div>
+    </div>`;
+  if(!db){ panel.querySelector('#dhTasks').innerHTML = '<div class="empty">База данных недоступна.</div>'; return; }
+  // --- задачи ---
+  const dayStart = dayBounds(0);
+  const tEl = panel.querySelector('#dhTasks');
+  unsubs['dh-tasks'] = db.collection('tasks').where('direction','==',slug).orderBy('ts','desc').limit(300).onSnapshot(snap=>{
+    const all = snap.docs.map(d=>d.data()).filter(t=> !t.parentId && t.status!=='done' && t.status!=='postponed' && !t.archived);
+    const by = (a,b)=> ((a.due||9e15)-(b.due||9e15)) || ((a.no||0)-(b.no||0));
+    const groups = [
+      ['Ждут согласования', all.filter(t=> t.status==='approval').sort(by)],
+      ['В работе', all.filter(t=> t.status==='in_progress').sort(by)],
+      ['К выполнению', all.filter(t=> t.status!=='approval' && t.status!=='in_progress').sort(by)]
+    ];
+    const row = t=>{
+      const title = (typeof splitRecordText==='function' ? splitRecordText(t.text).title : '') || t.title || t.text || 'Без названия';
+      const od = t.due && t.due < dayStart;
+      return `<a class="dh-task" href="#${slug}/tasks"><span class="dh-no">${t.no?'№'+esc(t.no):''}</span><span class="dh-tt">${esc(title)}</span>${t.project?`<span class="dh-pr">${esc(t.project)}</span>`:''}${t.due?`<span class="dh-due ${od?'od':''}">${esc(new Date(t.due).toLocaleDateString('ru-RU',{day:'numeric',month:'short'}))}</span>`:''}</a>`;
+    };
+    tEl.innerHTML = groups.filter(g=>g[1].length).map(([name,list])=>`<div class="dh-grp"><div class="dh-gh">${name} · ${list.length}</div>${list.slice(0,10).map(row).join('')}${list.length>10?`<a class="dh-more" href="#${slug}/tasks">ещё ${list.length-10}</a>`:''}</div>`).join('') || '<div class="empty">Открытых задач нет.</div>';
+  }, err=>{ tEl.innerHTML = `<div class="empty">Нет доступа (${esc(err.code||'')}).</div>`; });
+  // --- чат ---
+  const mEl = panel.querySelector('#dhMsgs');
+  const col = db.collection('messages');
+  const meName = async()=> (user && (await user.me())?.name) || (myRole==='kairat'?'Кайрат':'Сотрудник');
+  unsubs['dh-chat'] = col.where('direction','==',slug).orderBy('ts','desc').limit(80).onSnapshot(snap=>{
+    const msgs = snap.docs.map(d=>d.data()).filter(m=> m.chat).reverse();
+    if(!msgs.length){ mEl.innerHTML = '<div class="empty">Сообщений пока нет.</div>'; return; }
+    mEl.innerHTML = msgs.map(m=>{
+      const to = (Array.isArray(m.to)?m.to:(m.to?[m.to]:[])).map(tLabel).join(', ');
+      const ask = (m.ask && !m.answer && myRole==='kairat')
+        ? `<div class="dh-ask"><button class="btn" data-ans="yes" data-id="${esc(m.id)}">Согласовать</button><button class="btn ghost" data-ans="no" data-id="${esc(m.id)}">Не сейчас</button></div>`
+        : (m.ask && m.answer ? `<div class="dh-ans">${m.answer==='yes'?'✓ Согласовано':'Отложено'}</div>` : '');
+      return `<div class="dh-m ${m.authorRole===myRole?'me':''}"><div class="dh-mh"><b>${esc(m.author||'')}</b>${to?` <span>→ ${esc(to)}</span>`:''} <time>${esc(m.ts?new Date(m.ts).toLocaleString('ru-RU',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'')}</time></div><div class="dh-mt">${esc(m.text||'')}</div>${ask}</div>`;
+    }).join('');
+    mEl.scrollTop = mEl.scrollHeight;
+    chatMarkSeen(slug);
+  }, err=>{ mEl.innerHTML = `<div class="empty">Нет доступа (${esc(err.code||'')}).</div>`; });
+  mEl.addEventListener('click', async e=>{
+    const b = e.target.closest('[data-ans]'); if(!b) return;
+    b.disabled = true;
+    const ans = b.dataset.ans;
+    try{
+      await col.doc(b.dataset.id).update({ answer: ans, answeredAt: Date.now() });
+      await col.add({ direction:slug, chat:true, author: await meName(), authorRole:myRole, to:['general'], text: ans==='yes' ? 'Согласовано, начинай.' : 'Пока не начинай.', ts: Date.now() });
+    }catch(err){ b.disabled = false; }
+  });
+  let target = allowed[0];
+  panel.querySelectorAll('#dhTo button').forEach(b=> b.onclick = ()=>{ target = b.dataset.k; panel.querySelectorAll('#dhTo button').forEach(x=> x.classList.toggle('on', x===b)); });
+  const input = panel.querySelector('#dhInput'), send = panel.querySelector('#dhSend');
+  async function submit(){
+    const text = input.value.trim(); if(!text || !allowed.includes(target)) return;
+    send.disabled = true; input.value = '';
+    try{ await col.add({ direction:slug, chat:true, author: await meName(), authorRole:myRole, to:[target], text, ts: Date.now() }); }catch(err){ input.value = text; }
+    send.disabled = false;
+  }
+  send.onclick = submit; input.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); submit(); } });
+}
+
 function render(){
   renderRail();
   renderMobileNav();
@@ -1969,7 +2092,8 @@ function render(){
   if(exitBtn) exitBtn.addEventListener('click', ()=>{ viewAsDirection = null; location.hash = '#home'; render(); });
   clearUnsubs();
   const panel = document.getElementById('panel');
-  if(state.tab==='finance' && DIRS_WITH_FINANCE_AND_MESSAGES.includes(dir.slug)) renderFinance(panel, dir.slug);
+  if(state.tab==='home' && DIR_HOME_SLUGS.includes(dir.slug)) renderDirHome(panel, dir.slug);
+  else if(state.tab==='finance' && DIRS_WITH_FINANCE_AND_MESSAGES.includes(dir.slug)) renderFinance(panel, dir.slug);
   else if(state.tab==='marketing' && DIRS_WITH_MARKETING.includes(dir.slug)) renderMarketing(panel, dir.slug);
   else if(state.tab==='budgets' && dir.slug==='finance') renderBudgets(panel);
   else if(state.tab==='messages' && dir.slug==='academy') renderAcademyMessageArchive(panel);
@@ -2684,6 +2808,7 @@ function openTaskModal(col, id, getter){
           <div class="modal-field" style="flex:1;min-width:140px">
             <div class="modal-label">Статус</div>
             <select id="mStatus">
+              <option value="approval" ${status==='approval'?'selected':''}>Ждёт согласования</option>
               <option value="active" ${status==='active'?'selected':''}>Активна</option>
               <option value="postponed" ${status==='postponed'?'selected':''}>Отложена</option>
               <option value="done" ${status==='done'?'selected':''}>Завершена</option>
